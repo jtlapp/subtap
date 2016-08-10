@@ -95,23 +95,16 @@ SubtapPrinter.SHOW_EVENTS = 3; // output events in JSON
 //// EVENT HANDLERS ///////////////////////////////////////////////////////////
 
 SubtapPrinter.prototype._assertHandler = function (assert) {
-    if (this._terminated)
-        return;
-    try {
+    this._blockExceptions(function() {
         if (this._dumpEvents)
             this.printEvent('assert', assert);
         else
             this._state.assertHandler(assert);
-    }
-    catch (err) {
-        this._exitWithError(err);
-    }
+    }.bind(this));
 };
 
 SubtapPrinter.prototype._bailoutHandler = function (reason) {
-    if (this._terminated)
-        return;
-    try {
+    this._blockExceptions(function() {
         if (this._dumpEvents) {
             this.printEvent('bailout', reason);
             this.print("\n]\n");
@@ -121,16 +114,11 @@ SubtapPrinter.prototype._bailoutHandler = function (reason) {
             this.printBlankLine();
             this.print(this._format.line(0, text) + "\n");
         }
-    }
-    catch (err) {
-        this._exitWithError(err);
-    }
+    }.bind(this));
 };
 
 SubtapPrinter.prototype._childHandler = function (childParser) {
-    if (this._terminated)
-        return;
-    try {
+    this._blockExceptions(function() {
         this._setupParser(childParser);
         if (this._dumpEvents) {
             this.printEvent('child', "<childParser>");
@@ -138,30 +126,20 @@ SubtapPrinter.prototype._childHandler = function (childParser) {
         }
         else
             this._state.childHandler(childParser);
-    }
-    catch (err) {
-        this._exitWithError(err);
-    }
+    }.bind(this));
 };
 
 SubtapPrinter.prototype._commentHandler = function (comment) {
-    if (this._terminated)
-        return;
-    try {
+    this._blockExceptions(function() {
         if (this._dumpEvents)
             this.printEvent('comment', comment);
         else
             this._state.commentHandler(comment);
-    }
-    catch (err) {
-        this._exitWithError(err);
-    }
+    }.bind(this));
 };
 
 SubtapPrinter.prototype._completeHandler = function (results) {
-    if (this._terminated)
-        return;
-    try {
+    this._blockExceptions(function() {
         if (this._dumpEvents) {
             this.printEvent('complete', results);
             if (this._dumpTestDepth === 0)
@@ -171,52 +149,34 @@ SubtapPrinter.prototype._completeHandler = function (results) {
         }
         else
             this._state.completeHandler(results);
-    }
-    catch (err) {
-        this._exitWithError(err);
-    }
+    }.bind(this));
 };
 
 SubtapPrinter.prototype._extraHandler = function (extra) {
-    if (this._terminated)
-        return;
-    try {
+    this._blockExceptions(function() {
         if (this._dumpEvents)
             this.printEvent('extra', extra);
         else
             this._state.extraHandler(extra);
-    }
-    catch (err) {
-        this._exitWithError(err);
-    }
+    }.bind(this));
 };
 
 SubtapPrinter.prototype._planHandler = function (plan) {
-    if (this._terminated)
-        return;
-    try {
+    this._blockExceptions(function() {
         if (this._dumpEvents)
             this.printEvent('plan', plan);
         else
             this._state.planHandler(plan);
-    }
-    catch (err) {
-        this._exitWithError(err);
-    }
+    }.bind(this));
 };
 
 SubtapPrinter.prototype._versionHandler = function (version) {
-    if (this._terminated)
-        return;
-    try {
+    this._blockExceptions(function() {
         if (this._dumpEvents)
             this.printEvent('version', version);
         else
             this._state.versionHandler(version);
-    }
-    catch (err) {
-        this._exitWithError(err);
-    }
+    }.bind(this));
 };
 
 //// PRINT SERVICES ///////////////////////////////////////////////////////////
@@ -320,6 +280,17 @@ SubtapPrinter.prototype._abbreviateStack = function (stackHolder) {
             stack += "...("+ this._filterStackFromPath +")...\n";
             stackHolder.stack = stack;
         }
+    }
+};
+
+SubtapPrinter.prototype._blockExceptions = function (handler) {
+    if (this._terminated)
+        return;
+    try {
+        handler();
+    }
+    catch (err) {
+        this._exitWithError(err);
     }
 };
 
