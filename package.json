@@ -1,0 +1,25 @@
+{
+  "name": "subtap",
+  "version": "0.0.1",
+  "description": "A test runner for tap that presents results by nested test",
+  "main": "main.js",
+  "bin": "./bin/subtap.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "tap",
+    "runner",
+    "subtest"
+  ],
+  "author": "Joe Lapp",
+  "license": "MIT",
+  "dependencies": {
+    "glob": "^7.0.5",
+    "js-yaml": "^3.6.1",
+    "lodash": "^4.14.2",
+    "minimist": "^1.2.0",
+    "resolve": "^1.1.7",
+    "tap-parser": "^1.2.2"
+  }
+}
