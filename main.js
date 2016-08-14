@@ -17,7 +17,7 @@ var REPORTS = [
     reports.FailureReport
 ];
 
-var DIFF_HIGHLIGHT_MARGIN = 80; // right margin of multiline highlights
+var DIFF_HIGHLIGHT_MARGIN = 79; // right margin of multiline highlights
 var MIN_DIFF_HIGHLIGHT_WIDTH = 30; // min. width of multiline highlights
 
 var DEBUG = false;

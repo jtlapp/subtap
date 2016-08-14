@@ -21,6 +21,7 @@
     "lodash": "^4.14.2",
     "minimist": "^1.2.0",
     "resolve": "^1.1.7",
-    "tap-parser": "^1.2.2"
+    "tap-parser": "^1.2.2",
+    "xregexp": "^3.1.1"
   }
 }
