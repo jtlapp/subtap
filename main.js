@@ -4,36 +4,38 @@ SubtapPrinter
 
 //// MODULES //////////////////////////////////////////////////////////////////
 
-var yaml = require('js-yaml');
 var _ = require('lodash');
 
-var ConsoleFormat = require('./lib/ConsoleFormat');
 var states = require('./lib/states');
+var reports = require('./lib/reports');
 
 //// PRIVATE CONSTANTS ////////////////////////////////////////////////////////
 
-var BULLET_CHAR = '-';
-var FAIL_CHAR = '⨯';
-var PASS_CHAR = '✓';
-var ROOT_TEST_QUALIFIER = "root"; // qualifier for root-level tests
+var REPORTS = [
+    reports.FullReport,
+    reports.RootTestReport,
+    reports.FailureReport
+];
+
+var DIFF_HIGHLIGHT_MARGIN = 80; // right margin of multiline highlights
+var MIN_DIFF_HIGHLIGHT_WIDTH = 30; // min. width of multiline highlights
+
+var DEBUG = false;
 
 //// PRIVATE CONFIGURATION ////////////////////////////////////////////////////
 
 // _prettyMode - SubtapPrinter.SHOW_* mode in which to output test data
 // _dumpEvents - whether in mode SubtapPrinter.SHOW_EVENTS (derived)
+// _report - instance of AbstractReport that formats for the output mode
 // _writer - Writer stream to which to output prettied text
-// _tabSize - number of spaces to use for each indented level
-// _format - instance of ConsoleFormat used for formatting output
 // _filterStackFromPath - path of file at which to trunctate stack, or null
 // _stackFilterRegex - RegExp that finds _filterStackFromPath in a stack
-// _testNameRegex - RegExp that separates test name from test file
 
 //// PRIVATE STATE ////////////////////////////////////////////////////////////
 
 // _dumpStarted - whether any events have been dumped in JSON
 // _dumpTestDepth - test nesting depth during JSON even dump
-// _testNameStack - stack of parent test names; empty => no named parent
-// _testDepthShown - depth of _testNameStack for which test names are shown
+// _testStack - stack of parses of names of currently active tests
 // _counts - object having the following properties:
 //   rootTests - count of root-level named tests
 //   nestedTests - count of tests nested under root-level tests
@@ -58,27 +60,37 @@ var ROOT_TEST_QUALIFIER = "root"; // qualifier for root-level tests
  */
 
 function SubtapPrinter (tapParser, options) {
+
+    // establish output mode
+    
     options = options || {};
     this._prettyMode = options.prettyMode || SubtapPrinter.SHOW_ALL;
     this._dumpEvents = (this._prettyMode === SubtapPrinter.SHOW_EVENTS);
+    
+    // configure the options
+    
     this._writer = options.outputWriter || process.stdout;
-    this._tabSize = options.tabSize || 2;
     this._filterStackFromPath = options.filterStackFromPath || null;
     if (this._filterStackFromPath) {
         this._stackFilterRegex = new RegExp("\n( *(?:at )?).*"+
                 _.escapeRegExp(this._filterStackFromPath) +":[0-9:]+");
     }
-    this._format = new ConsoleFormat({
-        tabSize: this._tabSize,
-        clearToEnd: (this._prettyMode !== SubtapPrinter.SHOW_ALL),
-        monochrome: options.monochrome || false
-    });
-    this._testNameRegex = new RegExp("^(.+?)( \\(.+:[0-9]+\\))?$");
+    if (!this._dumpEvents) {
+        var Report = REPORTS[this._prettyMode];
+        this._report = new Report(this, {
+            tabSize: options.tabSize || 2,
+            monochrome: options.monochrome || false,
+            styled: options.styled || true,
+            highlightMargin: DIFF_HIGHLIGHT_MARGIN,
+            minHighlightWidth: MIN_DIFF_HIGHLIGHT_WIDTH
+        });
+    }
+    
+    // initialize state variables
 
     this._dumpStarted = false;
     this._dumpTestDepth = 0;
-    this._testNameStack = [];
-    this._testDepthShown = 0;
+    this._testStack = [];
     this._terminated = false;
     this._setupParser(tapParser);
     states.install(this);
@@ -88,8 +100,8 @@ module.exports = SubtapPrinter;
 //// PUBLIC CONSTANTS /////////////////////////////////////////////////////////
 
 SubtapPrinter.SHOW_ALL = 0; // show all tests and assertions, even passing ones
-SubtapPrinter.SHOW_FAILURES = 1; // only show failing tests and assertions
-SubtapPrinter.SHOW_ROOT = 2; // only show failures and root-level tests
+SubtapPrinter.SHOW_ROOT = 1; // only show failures and root-level tests
+SubtapPrinter.SHOW_FAILURES = 2; // only show failing tests and assertions
 SubtapPrinter.SHOW_EVENTS = 3; // output events in JSON
 
 //// EVENT HANDLERS ///////////////////////////////////////////////////////////
@@ -97,7 +109,7 @@ SubtapPrinter.SHOW_EVENTS = 3; // output events in JSON
 SubtapPrinter.prototype._assertHandler = function (assert) {
     this._blockExceptions(function() {
         if (this._dumpEvents)
-            this.printEvent('assert', assert);
+            this._printEvent('assert', assert);
         else
             this._state.assertHandler(assert);
     }.bind(this));
@@ -106,14 +118,11 @@ SubtapPrinter.prototype._assertHandler = function (assert) {
 SubtapPrinter.prototype._bailoutHandler = function (reason) {
     this._blockExceptions(function() {
         if (this._dumpEvents) {
-            this.printEvent('bailout', reason);
-            this.print("\n]\n");
+            this._printEvent('bailout', reason);
+            this._print("\n]\n");
         }
-        else {
-            var text = this._format.red(BULLET_CHAR +" BAIL OUT! "+ reason);
-            this.printBlankLine();
-            this.print(this._format.line(0, text) + "\n");
-        }
+        else
+            this._state.bailoutHandler(reason);
     }.bind(this));
 };
 
@@ -121,7 +130,7 @@ SubtapPrinter.prototype._childHandler = function (childParser) {
     this._blockExceptions(function() {
         this._setupParser(childParser);
         if (this._dumpEvents) {
-            this.printEvent('child', "<childParser>");
+            this._printEvent('child', "<childParser>");
             ++this._dumpTestDepth;
         }
         else
@@ -132,7 +141,7 @@ SubtapPrinter.prototype._childHandler = function (childParser) {
 SubtapPrinter.prototype._commentHandler = function (comment) {
     this._blockExceptions(function() {
         if (this._dumpEvents)
-            this.printEvent('comment', comment);
+            this._printEvent('comment', comment);
         else
             this._state.commentHandler(comment);
     }.bind(this));
@@ -141,9 +150,9 @@ SubtapPrinter.prototype._commentHandler = function (comment) {
 SubtapPrinter.prototype._completeHandler = function (results) {
     this._blockExceptions(function() {
         if (this._dumpEvents) {
-            this.printEvent('complete', results);
+            this._printEvent('complete', results);
             if (this._dumpTestDepth === 0)
-                this.print("\n]\n");
+                this._print("\n]\n");
             else
                 --this._dumpTestDepth;
         }
@@ -155,7 +164,7 @@ SubtapPrinter.prototype._completeHandler = function (results) {
 SubtapPrinter.prototype._extraHandler = function (extra) {
     this._blockExceptions(function() {
         if (this._dumpEvents)
-            this.printEvent('extra', extra);
+            this._printEvent('extra', extra);
         else
             this._state.extraHandler(extra);
     }.bind(this));
@@ -164,7 +173,7 @@ SubtapPrinter.prototype._extraHandler = function (extra) {
 SubtapPrinter.prototype._planHandler = function (plan) {
     this._blockExceptions(function() {
         if (this._dumpEvents)
-            this.printEvent('plan', plan);
+            this._printEvent('plan', plan);
         else
             this._state.planHandler(plan);
     }.bind(this));
@@ -173,7 +182,7 @@ SubtapPrinter.prototype._planHandler = function (plan) {
 SubtapPrinter.prototype._versionHandler = function (version) {
     this._blockExceptions(function() {
         if (this._dumpEvents)
-            this.printEvent('version', version);
+            this._printEvent('version', version);
         else
             this._state.versionHandler(version);
     }.bind(this));
@@ -181,95 +190,25 @@ SubtapPrinter.prototype._versionHandler = function (version) {
 
 //// PRINT SERVICES ///////////////////////////////////////////////////////////
 
-SubtapPrinter.prototype.print = function (line) {
-    this._writer.write(line);
+SubtapPrinter.prototype._print = function (text) {
+    if (DEBUG)
+        text = '>'+ text.replace(/\x1b/g, "{ESC}").replace(/\r/g, "{UP}");
+    this._writer.write(text);
 };
 
-SubtapPrinter.prototype.printBlankLine = function () {
-    if (this._dots)
-        this.print("\r"+ this._format.lineEnd());
-    this.print("\n");
-};
-
-SubtapPrinter.prototype.printComment = function (comment) {
-    if (!this._dots || this._testNameStack.length === 0) {
-        this.print(this._format.line(this._indentLevel(), comment));
-        if (comment[comment.length - 1] !== "\n")
-            this.print("\n");
-    }
-};
-
-SubtapPrinter.prototype.printEvent = function (eventName, eventData) {
+SubtapPrinter.prototype._printEvent = function (eventName, eventData) {
     if (this._dumpStarted)
-        this.print(",\n\n");
+        this._print(",\n\n");
     else {
-        this.print("[\n");
+        this._print("[\n");
         this._dumpStarted = true;
     }
-    this.print("{'event':'"+ eventName +"', 'data':");
-    this.print(JSON.stringify(eventData, "  "));
-    this.print("}");
-};
-
-SubtapPrinter.prototype.printFailedAssertion = function (assert) {
-    this._printTestContext();
-    this._abbreviateAssertion(assert);
-    var firstLine = "not ok "+ assert.id +" - "+ assert.name;
-    if (assert.time)
-        firstLine += " # time="+ assert.time +"ms";
-    firstLine =
-        this._format.bold(this._format.red(FAIL_CHAR +" "+ firstLine));
-    this.print(this._format.line(this._indentLevel(), firstLine) +"\n");
-    
-    var diagText = yaml.safeDump(assert.diag, { indent: this._tabSize });
-    this.print(this._format.multiline(this._indentLevel() + 1, diagText));
-};
-
-SubtapPrinter.prototype.printPassedAssertion = function (assert) {
-    if (this._dots) {
-        if (this._dots === 1 || ++this._dotCount === this._dots) {
-            this._dotCount = 0;
-            this.print('.');
-        }
-    }
-    else {
-        this._printTestContext();
-        var text = PASS_CHAR +" ok "+ assert.id +" - "+ assert.name;
-        this.print(this._format.line(this._indentLevel(), text) +"\n");
-    }
-};
-
-SubtapPrinter.prototype.printTestHeader = function () {
-    if (!this._dots || this._testNameStack.length === 1)
-        this._printTestContext();
-};
-
-SubtapPrinter.prototype.printTestClosing = function (results) {
-    if (this._testNameStack.length === 0)
-        this._printRunResults(results);
-    else {
-        if (this._testNameStack.length === 1)
-            this._printTestResults(results);
-        // ignore results for tests nested within root-level tests
-        
-        if (this._testDepthShown === this._testNameStack.length)
-            --this._testDepthShown;
-    }
+    this._print("{'event':'"+ eventName +"', 'data':");
+    this._print(JSON.stringify(eventData, "  "));
+    this._print("}");
 };
 
 //// SUPPORT METHODS //////////////////////////////////////////////////////////
-
-SubtapPrinter.prototype._abbreviateAssertion = function (assert) {
-    if (assert.ok)
-        throw new Error("Can only abbreviate failed assertions");
-    if (assert.diag) {
-        this._abbreviateStack(assert.diag);
-        if (assert.diag.stack && assert.diag.at)
-            delete assert.diag['at'];
-    }
-    if (assert.diag.found)
-        this._abbreviateStack(assert.diag.found);
-};
 
 SubtapPrinter.prototype._abbreviateStack = function (stackHolder) {
     var stack = stackHolder.stack;
@@ -303,70 +242,6 @@ SubtapPrinter.prototype._exitWithError = function (err) {
     this._terminated = true;
     process.stderr.write("\n"+ err.stack +"\n");
     process.exit(1);
-};
-
-SubtapPrinter.prototype._indentLevel = function (parser) {
-   return this._testNameStack.length;
-};
-
-SubtapPrinter.prototype._parseTestName = function (testName) {
-    var matches = testName.match(this._testNameRegex);
-    return {
-        name: matches[1],
-        file: matches[2]
-    };
-};
-
-SubtapPrinter.prototype._printTestResults = function (results) {
-    if (this._dots) {
-        var fullName = this._testNameStack[this._testNameStack.length - 1];
-        var nameParse = this._parseTestName(fullName);
-        var text;
-        this.print("\r"+ this._format.UP_LINE);
-        if (results.ok)
-            text = this._format.green(PASS_CHAR +" "+ nameParse.name);
-        else
-            text = this._format.red(FAIL_CHAR +" "+ nameParse.name);
-        if (nameParse.file)
-            text += nameParse.file;
-        this.print(this._format.line(this._indentLevel() - 1, text) +"\n");
-        this.print(this._format.CLEAR_END +"\r");
-    }
-};
-
-SubtapPrinter.prototype._printRunResults = function (results) {
-    var text;
-    if (results.ok) {
-        // "Passed all N root tests, all N assertions"
-        text = "Passed all "+
-            this._counts.rootTests +" "+ ROOT_TEST_QUALIFIER +" tests, all "+
-            this._counts.assertions +" assertions";
-        text = this._format.bold(this._format.green(text));
-    }
-    else {
-        // "Failed n of N root tests, n of N assertions"
-        text = "Failed "+
-            this._counts.failedRootTests +" of "+ this._counts.rootTests +" "+
-                    ROOT_TEST_QUALIFIER +" tests, "+
-            this._counts.failedAssertions +" of "+ this._counts.assertions +
-                    " assertions";
-        text = this._format.bold(this._format.red(text));
-    }
-    this.print(this._format.line(0, text) +"\n\n");
-};
-
-SubtapPrinter.prototype._printTestContext = function () {
-    while (this._testDepthShown < this._testNameStack.length) {
-        var fullName = this._testNameStack[this._testDepthShown];
-        var nameParse = this._parseTestName(fullName);
-        var text = BULLET_CHAR +" "+ nameParse.name;
-        if (!this._dots)
-            text = this._format.bold(text);
-        if (nameParse.file)
-            text += nameParse.file;
-        this.print(this._format.line(this._indentLevel() - 1, text) +"\n");
-        ++this._testDepthShown;
-    }
 };
 
 SubtapPrinter.prototype._setupParser = function (parser) {
