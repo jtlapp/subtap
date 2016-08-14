@@ -15,6 +15,7 @@
   "author": "Joe Lapp",
   "license": "MIT",
   "dependencies": {
+    "color-support": "^1.1.1",
     "glob": "^7.0.5",
     "js-yaml": "^3.6.1",
     "lodash": "^4.14.2",
