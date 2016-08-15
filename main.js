@@ -17,10 +17,10 @@ var REPORTS = [
     reports.FailureReport
 ];
 
-var DIFF_HIGHLIGHT_MARGIN = 79; // right margin of multiline highlights
+var DIFF_HIGHLIGHT_MARGIN = 80; // right margin of multiline highlights
 var MIN_DIFF_HIGHLIGHT_WIDTH = 30; // min. width of multiline highlights
 
-var DEBUG = false;
+var REGEX_CANONICAL = new RegExp("(\r|\x1b\\[F|\x1b)", 'g');
 
 //// PRIVATE CONFIGURATION ////////////////////////////////////////////////////
 
@@ -30,6 +30,7 @@ var DEBUG = false;
 // _writer - Writer stream to which to output prettied text
 // _filterStackFromPath - path of file at which to trunctate stack, or null
 // _stackFilterRegex - RegExp that finds _filterStackFromPath in a stack
+// _canonical - whether to output in a test-verifiable form
 
 //// PRIVATE STATE ////////////////////////////////////////////////////////////
 
@@ -57,6 +58,7 @@ var DEBUG = false;
  *   - tabSize: number of spaces by which to indent each level of text (defaults to 2)
  *   - monochrome: true => show all text in default color, while still allowing bold (defaults to false)
  *   - filterStackFromPath: path of file in call stack to filter out of call stack by abbreviating to just this path (defaults to null for no stack filter)
+ *   - canonical: true => output as sequential test-verifiable lines
  */
 
 function SubtapPrinter (tapParser, options) {
@@ -66,6 +68,7 @@ function SubtapPrinter (tapParser, options) {
     options = options || {};
     this._prettyMode = options.prettyMode || SubtapPrinter.SHOW_ALL;
     this._dumpEvents = (this._prettyMode === SubtapPrinter.SHOW_EVENTS);
+    this._canonical = options.canonical || false;
     
     // configure the options
     
@@ -79,8 +82,7 @@ function SubtapPrinter (tapParser, options) {
         var Report = REPORTS[this._prettyMode];
         this._report = new Report(this, {
             tabSize: options.tabSize || 2,
-            monochrome: options.monochrome || false,
-            styled: options.styled || true,
+            styleMode: options.colorMode,
             highlightMargin: DIFF_HIGHLIGHT_MARGIN,
             minHighlightWidth: MIN_DIFF_HIGHLIGHT_WIDTH
         });
@@ -191,8 +193,19 @@ SubtapPrinter.prototype._versionHandler = function (version) {
 //// PRINT SERVICES ///////////////////////////////////////////////////////////
 
 SubtapPrinter.prototype._print = function (text) {
-    if (DEBUG)
-        text = '>'+ text.replace(/\x1b/g, "{ESC}").replace(/\r/g, "{UP}");
+    if (this._canonical) {
+        text = text.replace(REGEX_CANONICAL, function (match) {
+            switch (match) {
+                case "\r":
+                    return "\\r\n";
+                case "\x1b[F":
+                    return "\\^";
+                case "\x1b":
+                    return "\\e";
+            }
+            return match;
+        });
+    }
     this._writer.write(text);
 };
 

@@ -20,14 +20,13 @@ var TAB_SIZE = 2;
 var options = parseOpts(process.argv.slice(2), {
     alias: {
         b: 'bailOnFail',
-        d: 'dots',
+        c: 'colorMode',
         f: 'onlyFailures',
         h: 'help',
-        m: 'monochrome',
         n: 'selectedTest',
         o: 'outputFormat'
     },
-    boolean: [ 'b', 'd', 'f', 'h', 'm', 'n' ],
+    boolean: [ 'b', 'c', 'f', 'h', 'n' ],
     string: [ 'o' ]
 });
 var outputFormat = (options.outputFormat ? 
@@ -43,13 +42,13 @@ if (options.help) {
         "\n"+
         "options:"+
         "  -b  : bail on first assertion to fail"+
-        "  -d  : show dots instead of assertions"+
-        "  -dN : show one dot per N assertions"+
+        "  -c0 : no color, emphasis, or other ANSI codes"+
+        "  -c1 : monochrome mode, emphasis allowed"+
+        "  -c2 : multicolor mode (default)"+
         "  -f  : only show failing tests and assertions"+
         "  -h  : show this help information"+
         "  -n  : only show test numbers and failures"+
         "  -nN : run only test number N"+
-        "  -m  : output in monochrome"+
         "  -o json : output TAP events in JSON"+
         "  -o tap  : output raw TAP text"+
         "\n"
@@ -67,9 +66,22 @@ else if (selectedTest === true)
     prettyMode = SubtapPrinter.SHOW_ROOT;
 if (selectedTest === true)
     selectedTest = false; // no number selected
-    
-if (selectedTest === 0) {
+if (selectedTest === 0)
     exitWithError("-n option requires a on-zero test number (e.g. -n42)");
+    
+var colorMode = options.colorMode;
+if (colorMode === true)
+    exitWithError("-cN option requires a color mode number (e.g. -c1)");
+if (colorMode === false)
+    colorMode = 2;
+if (!(colorMode <= 2 || colorMode >= 10 && colorMode <= 12))
+    exitWithError("-cN option requires a valid color mode (-h for help)");
+
+// secret canonical output mode for self-testing = colorMode + 10
+var canonical = false;
+if (colorMode >= 10) {
+    canonical = true;
+    colorMode -= 10;
 }
 
 var cwd = process.cwd();
@@ -119,10 +131,10 @@ if (outputFormat !== 'tap') {
     var parser = tapParser();
     printer = new SubtapPrinter(parser, {
         tabSize: TAB_SIZE,
-        dots: options.dots,
-        monochrome: options.monochrome,
         filterStackFromPath: __filename,
-        prettyMode: prettyMode
+        prettyMode: prettyMode,
+        colorMode: colorMode,
+        canonical: canonical
     });
     tap.pipe(parser.on('error', function (err) {
         /**/ console.log("GOT ERROR: "+ err.message);
