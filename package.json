@@ -2,7 +2,7 @@
   "name": "subtap",
   "version": "0.0.1",
   "description": "A test runner for tap that presents results by nested test",
-  "main": "main.js",
+  "main": "index.js",
   "bin": "./bin/subtap.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
