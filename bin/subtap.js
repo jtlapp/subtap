@@ -30,7 +30,7 @@ var options = minimist(argv, {
         h: 'help',
         n: 'selectedTest'
     },
-    boolean: [ 'b', 'c', 'h', 'n', 'r' ],
+    boolean: [ 'b', 'c', 'h', 'n' ],
 });
 
 // TBD: error if no files; or maybe default to test/ and tests/; or maybe default to stdin and make that case not dependent on node-tap; actually, a -i option for stdin would be best
@@ -167,7 +167,7 @@ options._.forEach(function (pattern) {
     });
 });
 if (fileCount === 0)
-    exitWithError("no files found");
+    exitWithError("no files match pattern");
 
 // perform this check after all tests have been registered and counted
 
