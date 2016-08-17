@@ -2,8 +2,9 @@
 
 //// MODULES //////////////////////////////////////////////////////////////////
 
-var resolveModule = require('resolve').sync;
-var resolvePath = require('path').resolve;
+var fs = require('fs');
+var resolveModule = require('resolve');
+var path = require('path');
 var minimist = require('minimist');
 var glob = require('glob');
 var tapParser = require('tap-parser');
@@ -29,14 +30,15 @@ var options = minimist(argv, {
         h: 'help',
         n: 'selectedTest'
     },
-    boolean: [ 'b', 'c', 'h', 'n' ],
+    boolean: [ 'b', 'c', 'h', 'n', 'r' ],
 });
 
 // TBD: error if no files; or maybe default to test/ and tests/; or maybe default to stdin and make that case not dependent on node-tap; actually, a -i option for stdin would be best
 
 if (options.help) {
     console.log(
-        "subtap [options] [files]\n"+ // TBD: say more
+        "subtap [options] [file-patterns]\n"+ // TBD: say more
+        "(only works with JS files that require 'tap')\n"+
         "\n"+
         "options:\n"+
         "  -b  : bail on first assertion to fail\n"+
@@ -63,16 +65,18 @@ var installerMap = {
     },
     json: function() {
         var parser = new tapParser();
-        new subtap.JsonPrinter(parser, {
+        var printer = new subtap.JsonPrinter(parser, {
             truncateStackAtPath: __filename
         });
         tap.pipe(parser);
+        return printer;
     },
     tally: function() {
         return installReport(subtap.RootTestReport);
     },
     tap: function() {
         // nothing to do; not filtering output of parser
+        return null;
     }
 };
 
@@ -104,6 +108,11 @@ var selectedTest = options.selectedTest;
 if (selectedTest === 0 || selectedTest === true)
     exitWithError("-n option requires a on-zero test number (e.g. -n42)");
     
+if (options._.length === 0) {
+    options._.push("test/*.js");
+    options._.push("tests/*.js");
+}
+
 var cwd = process.cwd();
 var testFileRegex = new RegExp(" \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):");
 
@@ -120,7 +129,7 @@ var tapPath;
 var tap;
 try {
     tapPath = "tap";
-    tap = require(resolveModule(tapPath, { basedir: cwd }));
+    tap = require(resolveModule.sync(tapPath, { basedir: cwd }));
 }
 catch(err) {
     tapPath = "..";
@@ -146,21 +155,25 @@ tap.test = function subtapTest(name, extra, cb, deferred) {
 
 //// RUN TESTS ////////////////////////////////////////////////////////////////
 
-// install TAP listener before running tests found in the files
+var receiver = installReceiver(); // prepare to listen to run of tests
 
-installReceiver();
-
-// this glob code is copied from https://github.com/substack/tape
-
-options._.forEach(function (arg) {
-    glob.sync(arg).forEach(function (file) {
-        require(resolvePath(cwd, file));
+var fileCount = 0;
+options._.forEach(function (pattern) {
+    glob.sync(pattern, {
+        nodir: true
+    }).forEach(function (file) {
+        ++fileCount;
+        require(path.resolve(cwd, file));
     });
 });
+if (fileCount === 0)
+    exitWithError("no files found");
 
 // perform this check after all tests have been registered and counted
 
 setImmediate(function () {
+    if (testNumber === 0)
+        exitWithError("no tests found");
     if (selectedTest !== false && selectedTest > testNumber)
         exitWithError("test "+ selectedTest +" not found");
 });
@@ -168,6 +181,8 @@ setImmediate(function () {
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
 function exitWithError(message) {
+    if (receiver)
+        receiver.abort();
     console.log("*** %s ***\n", message);
     process.exit(1);
 }
@@ -186,7 +201,7 @@ function extractDashDashOptions(argv) {
 
 function installReport(reportClass) {
     var parser = tapParser();
-    new subtap.PrettyPrinter(parser, new reportClass({
+    var printer = new subtap.PrettyPrinter(parser, new reportClass({
         tabSize: TAB_SIZE,
         styleMode: colorMode,
         highlightMargin: DIFF_HIGHLIGHT_MARGIN,
@@ -195,6 +210,7 @@ function installReport(reportClass) {
         writeFunc: (canonical ? helper.canonicalize.bind(this, write) : write)
     }));
     tap.pipe(parser);
+    return printer;
 }
 
 function write(text) {
