@@ -322,12 +322,14 @@ BaseReport.prototype._printFailedAssertion = function (
     line = this._bold(this._color('fail', BaseReport.BULLET_FAIL +" ")) + line;
     this._maker.line(indentLevel, line);
 
-    if (!_.isUndefined(assert.diag.found))
-        this._printDiffs(indentLevel + 1, assert);
-    var diagText = yaml.safeDump(assert.diag, {
-        indent: this._tabSize
-    });
-    this._maker.multiline(indentLevel + 1, diagText);
+    if (!_.isUndefined(assert.diag)) { // exceptions may not yield a diag
+        if (!_.isUndefined(assert.diag.found))
+            this._printDiffs(indentLevel + 1, assert);
+        var diagText = yaml.safeDump(assert.diag, {
+            indent: this._tabSize
+        });
+        this._maker.multiline(indentLevel + 1, diagText);
+    }
 };
 
 BaseReport.prototype._printTestContext = function (testStack) {

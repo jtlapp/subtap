@@ -1,42 +1,25 @@
-#!/usr/bin/env node
+//'use strict'; // TBD delete this
 
 /******************************************************************************
-Runs a single test file in an isolated child process.
-
-Command line arguments:
-    _runfile <tapPath> <priorTestCount> <cwd> <filePath> <selectedNumber>
-
-<tapPath> - Path to the 'node-tap' module.
-<priorTestCount> - Number of root tests run prior to this test file.
-<cwd> - Current working directory. (Passed in because it'll be the same for many files, so this is more efficient than making a system call for each file.)
-<filePath> - Path to the test file to run.
-<selectedNumber> - Number of single test to run, or 0 to run all tests.
+Runs a single test file in an isolated child process. Takes a single argument containing the path to the node-tap installation to employ.
 ******************************************************************************/
 
-//// CONSTANTS ////////////////////////////////////////////////////////////////
+//// MODULES //////////////////////////////////////////////////////////////////
 
-var ARG_TAP_PATH = 0;
-var ARG_TEST_COUNT = 1;
-var ARG_CWD = 2;
-var ARG_FILE_PATH = 3;
-var ARG_SELECTION = 4;
+var Writable = require('stream').Writable;
 
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
-var argv = process.argv.slice(2);
-var priorTestNumber = parseInt(argv[ARG_TEST_COUNT]);
-var filePath = argv[ARG_FILE_PATH];
-var cwd = argv[ARG_CWD]; // more efficient than making system call
-var testFileRegex = new RegExp(" \\("+ escapeRegex(cwd) +"/(.+:[0-9]+):");
-var selectedTest = parseInt(argv[ARG_SELECTION]);
+var selectedTest; // number of single test to run, or 0 to run all tests
+var testFileRegex; // regex for pulling test file and line number from Error
 
 //// STATE ////////////////////////////////////////////////////////////////////
 
-var testNumber = priorTestNumber;
+var testNumber; // number of most-recently output root test
 
 //// CUSTOMIZE TAP ////////////////////////////////////////////////////////////
 
-var tap = require(argv[ARG_TAP_PATH]);
+var tap = require(process.argv[2]);
 
 var testMethod = tap.test;
 tap.test = function subtapTest(name, extra, cb, deferred) {
@@ -55,17 +38,61 @@ tap.test = function subtapTest(name, extra, cb, deferred) {
     testMethod.call(this, name, extra, cb, deferred);
 };
 
-//// RUN TESTS ////////////////////////////////////////////////////////////////
+tap.pipe(new Writable({
+    write: function(chunk, encoding, done) {
+        process.send({
+            event: 'chunk',
+            text: chunk.toString()
+        });
+        done();
+    }
+}));
 
-process.on('beforeExit', function (exitCode) {
-    process.stdout.write("# SUBTAP: "+ (testNumber - priorTestNumber) +
-            " root tests in "+ filePath +"\n");
-});
-require(filePath);
-
-//// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
-
-// include here so we're not loading a module (e.g. lodash) with each call
-function escapeRegex(s) {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/*
+class MyWritable extends Writable
+{
+    constructor(options) {
+        super(options);
+    }
+    
+    _write(chunk, encoding, done) {
+        process.send({
+            event: 'chunk',
+            text: chunk.toString()
+        });
+        done();
+    }
+    
+    end(chunk, encoding, done) {
+        super.end(chunk, encoding, done);
+        console.log("**** END");
+    }
 }
+tap.pipe(new MyWritable());
+*/
+
+//// INSTALLATION /////////////////////////////////////////////////////////////
+
+process.on('message', function (config) {
+    testNumber = config.priorTestNumber;
+    testFileRegex = new RegExp(config.testFileRegexStr);
+    selectedTest = config.selectedTest;
+    require(config.filePath);
+
+    setImmediate(function () { // run after all tap nextTicks have depleted
+        /**/ return; // TBD setImmediate() runs too soon
+        process.send({
+            event: 'done',
+            lastTestNumber: testNumber
+        });
+        process.exit(0); // forked child must call this explicitly
+    });
+});
+
+tap.on('bailout', function (reason) {
+    process.send({
+        event: 'bailout',
+        reason: reason
+    });
+});
+

@@ -7,8 +7,8 @@ var resolveModule = require('resolve');
 var path = require('path');
 var minimist = require('minimist');
 var glob = require('glob');
-var tapParser = require('tap-parser');
-var childProcess = require('child_process');
+var fork = require('child_process').fork;
+var _ = require('lodash');
 
 var subtap = require("../");
 var helper = require("../lib/helper");
@@ -62,12 +62,9 @@ var installerMap = {
         return installReport(subtap.FailureReport);
     },
     json: function() {
-        var parser = new tapParser();
-        var printer = new subtap.JsonPrinter(parser, {
+        return new subtap.JsonPrinter({
             truncateStackAtPath: __filename
         });
-        tap.pipe(parser);
-        return printer;
     },
     tally: function() {
         return installReport(subtap.RootTestReport);
@@ -106,36 +103,42 @@ var selectedTest = options.selectedTest;
 if (selectedTest === 0 || selectedTest === true)
     exitWithError("-n option requires a on-zero test number (e.g. -n42)");
     
+var cwd = process.cwd();
+var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
+
+// Locate the installation of the tap module that these test files will use. We need to tweak loads of this particular installation.
+
+var tapPath;
+try {
+    tapPath = resolveModule.sync('tap', { basedir: cwd });
+    require(tapPath);
+}
+catch(err) {
+    tapPath = path.resolve(__dirname, '..');
+    require(tapPath); // assume testing subtap module itself
+}
+
+var childPath = path.resolve(__dirname, "_runfile.js");
+var childEnv = (options.bailOnFail ? { TAP_BAIL: '1' } : {});
+
+//// STATE ////////////////////////////////////////////////////////////////////
+
+var filePaths = []; // array of all test files to run
+var fileIndex = 0; // index of the next test file to run
+var testNumber = 0; // number of most-recently output root test
+var bailed = false; // whether test file bailed out
+
+//// RUN TESTS ////////////////////////////////////////////////////////////////
+
+// If no files are specified, assume all .js in ./test and ./tests.
+
 if (options._.length === 0) {
     options._.push("test/*.js");
     options._.push("tests/*.js");
 }
 
-var cwd = process.cwd();
+// Run the test files strictly sequentially so that, for a given set of test files, root tests have consistent numbers from run-to-run.
 
-//// STATE ////////////////////////////////////////////////////////////////////
-
-var testNumber = 0;
-
-//// CUSTOMIZE TAP ////////////////////////////////////////////////////////////
-
-var tapPath;
-try {
-    tapPath = "tap";
-    require(resolveModule.sync(tapPath, { basedir: cwd }));
-}
-catch(err) {
-    tapPath = "..";
-    require(tapPath); // assume testing subtap module itself
-}
-
-var childEnv = (options.bailOnFail ? { TAP_BAIL: '1' } : {});
-
-//// RUN TESTS ////////////////////////////////////////////////////////////////
-
-// Run the test files strictly sequentially so we can get root test counts for each file to number root tests with some run-to-run stability.
-
-var filePaths = [];
 options._.forEach(function (pattern) {
     glob.sync(pattern, {
         nodir: true
@@ -147,17 +150,7 @@ if (filePaths.length === 0)
     exitWithError("no files match pattern");
 
 var receiver = installReceiver(); // prepare to listen to run of tests
-
-
-
-// perform this check after all tests have been registered and counted
-
-setImmediate(function () {
-    if (testNumber === 0)
-        exitWithError("no tests found");
-    if (selectedTest !== false && selectedTest > testNumber)
-        exitWithError("test "+ selectedTest +" not found");
-});
+runNextFile(); // run first file; each subsequent file runs after prev closes
 
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
@@ -181,8 +174,7 @@ function extractDashDashOptions(argv) {
 }
 
 function installReport(reportClass) {
-    var parser = tapParser();
-    var printer = new subtap.PrettyPrinter(parser, new reportClass({
+    return new subtap.PrettyPrinter(new reportClass({
         tabSize: TAB_SIZE,
         styleMode: colorMode,
         highlightMargin: DIFF_HIGHLIGHT_MARGIN,
@@ -190,12 +182,46 @@ function installReport(reportClass) {
         truncateStackAtPath: __filename,
         writeFunc: (canonical ? helper.canonicalize.bind(this, write) : write)
     }));
-    tap.pipe(parser);
-    return printer;
 }
 
 function runNextFile() {
-    spawn(
+    // fork so can use IPC to communicate test numbers and bail-out
+    var child = fork(childPath, [tapPath], {env: childEnv});
+    
+    child.on('message', function (msg) {
+        switch (msg.event) {
+            case 'chunk':
+                // better or worse than spawning and piping stdout?
+                receiver.write(msg.text);
+                break;
+            case 'bailout':
+                bailed = true;
+                break;
+            case 'done':
+                testNumber = msg.lastTestNumber;
+                break;
+        }
+    });
+    
+    child.on('exit', function (exitCode) {
+        // exitCode == 1 if any test fails, so can't bail run
+        if (bailed)
+            return;
+        if (fileIndex < filePaths.length)
+            return runNextFile();
+        if (testNumber === 0)
+            exitWithError("no tests found");
+        if (selectedTest !== false && selectedTest > testNumber)
+            exitWithError("test "+ selectedTest +" not found");
+        receiver.end();
+    });
+    
+    child.send({
+        priorTestNumber: testNumber,
+        testFileRegexStr: testFileRegexStr,
+        selectedTest: selectedTest,
+        filePath: filePaths[fileIndex++]
+    });
 }
 
 function write(text) {
