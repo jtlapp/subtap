@@ -8,7 +8,7 @@ var path = require('path');
 var minimist = require('minimist');
 var glob = require('glob');
 var tapParser = require('tap-parser');
-var _ = require('lodash');
+var childProcess = require('child_process');
 
 var subtap = require("../");
 var helper = require("../lib/helper");
@@ -32,8 +32,6 @@ var options = minimist(argv, {
     },
     boolean: [ 'b', 'c', 'h', 'n' ],
 });
-
-// TBD: error if no files; or maybe default to test/ and tests/; or maybe default to stdin and make that case not dependent on node-tap; actually, a -i option for stdin would be best
 
 if (options.help) {
     console.log(
@@ -114,7 +112,6 @@ if (options._.length === 0) {
 }
 
 var cwd = process.cwd();
-var testFileRegex = new RegExp(" \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):");
 
 //// STATE ////////////////////////////////////////////////////////////////////
 
@@ -122,52 +119,36 @@ var testNumber = 0;
 
 //// CUSTOMIZE TAP ////////////////////////////////////////////////////////////
 
-if (options.bailOnFail)
-    process.env.TAP_BAIL = '1'; // must set prior to loading tap
-
 var tapPath;
-var tap;
 try {
     tapPath = "tap";
-    tap = require(resolveModule.sync(tapPath, { basedir: cwd }));
+    require(resolveModule.sync(tapPath, { basedir: cwd }));
 }
 catch(err) {
     tapPath = "..";
-    tap = require(tapPath); // assume testing subtap module itself
+    require(tapPath); // assume testing subtap module itself
 }
 
-var testMethod = tap.test;
-tap.test = function subtapTest(name, extra, cb, deferred) {
-    ++testNumber;
-    if (selectedTest !== false && testNumber !== selectedTest)
-        return;
-    if (!deferred) {
-        name = '['+ testNumber +'] '+ name;
-        
-        // append file name and line number of test to test name
-        var err = new Error();
-        var matches = err.stack.match(testFileRegex);
-        if (matches !== null)
-            name += ' ('+ matches[1] +')';
-    }
-    testMethod.call(this, name, extra, cb, deferred);
-};
+var childEnv = (options.bailOnFail ? { TAP_BAIL: '1' } : {});
 
 //// RUN TESTS ////////////////////////////////////////////////////////////////
 
-var receiver = installReceiver(); // prepare to listen to run of tests
+// Run the test files strictly sequentially so we can get root test counts for each file to number root tests with some run-to-run stability.
 
-var fileCount = 0;
+var filePaths = [];
 options._.forEach(function (pattern) {
     glob.sync(pattern, {
         nodir: true
     }).forEach(function (file) {
-        ++fileCount;
-        require(path.resolve(cwd, file));
+        filePaths.push(path.resolve(cwd, file));
     });
 });
-if (fileCount === 0)
+if (filePaths.length === 0)
     exitWithError("no files match pattern");
+
+var receiver = installReceiver(); // prepare to listen to run of tests
+
+
 
 // perform this check after all tests have been registered and counted
 
@@ -211,6 +192,10 @@ function installReport(reportClass) {
     }));
     tap.pipe(parser);
     return printer;
+}
+
+function runNextFile() {
+    spawn(
 }
 
 function write(text) {
