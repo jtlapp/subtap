@@ -107,6 +107,12 @@ if (colorMode >= 10) {
 var selectedTest = options.selectedTest;
 if (selectedTest === 0 || selectedTest === true)
     exitWithError("-n option requires a non-zero test number (e.g. -n42)");
+
+var maxFailedTests = 0; // assume no maximum
+if (_.isNumber(options.bailOnFail)) {
+    maxFailedTests = options.bailOnFail;
+    options.bailOnFail = false;
+}
     
 var cwd = process.cwd();
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
@@ -131,6 +137,7 @@ var childEnv = (options.bailOnFail ? { TAP_BAIL: '1' } : {});
 var filePaths = []; // array of all test files to run
 var fileIndex = 0; // index of the next test file to run
 var testNumber = 0; // number of most-recently output root test
+var failedTests = 0; // number of tests that have failed
 var bailed = false; // whether test file bailed out
 var skippingChunks = false; // whether skipping TAP output
 
@@ -209,7 +216,9 @@ function runNextFile() {
                 bailed = true;
                 break;
             case 'done':
+                // TBD: child.kill();
                 testNumber = msg.lastTestNumber;
+                failedTests = msg.failedTests;
                 break;
         }
     });
@@ -231,6 +240,8 @@ function runNextFile() {
         priorTestNumber: testNumber,
         testFileRegexStr: testFileRegexStr,
         selectedTest: selectedTest,
+        failedTests: failedTests,
+        maxFailedTests: maxFailedTests,
         filePath: filePaths[fileIndex++]
     });
 }
