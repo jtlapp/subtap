@@ -1,5 +1,3 @@
-//'use strict'; // TBD delete this
-
 /******************************************************************************
 Runs a single test file in an isolated child process. Takes a single argument containing the path to the node-tap installation to employ.
 ******************************************************************************/
@@ -16,6 +14,9 @@ var testFileRegex; // regex for pulling test file and line number from Error
 //// STATE ////////////////////////////////////////////////////////////////////
 
 var testNumber; // number of most-recently output root test
+//var queueCount = 0; // number of tests that have queued to run
+//var runCount = 0; // number of tests that have run undeferred
+var testsPending = 0;
 
 //// CUSTOMIZE TAP ////////////////////////////////////////////////////////////
 
@@ -23,10 +24,16 @@ var tap = require(process.argv[2]);
 
 var testMethod = tap.test;
 tap.test = function subtapTest(name, extra, cb, deferred) {
-    ++testNumber;
-    if (selectedTest !== false && testNumber !== selectedTest)
-        return;
-    if (!deferred) {
+    if (!cb) {
+        cb = extra; // cb might still be undefined if a TODO
+        extra = {};
+    }
+    if (!deferred) { // if initial registration
+        ++testNumber;
+        ++testsPending;
+        if (selectedTest !== false && testNumber !== selectedTest)
+            return;
+
         name = '['+ testNumber +'] '+ name;
         
         // append file name and line number of test to test name
@@ -35,7 +42,34 @@ tap.test = function subtapTest(name, extra, cb, deferred) {
         if (matches !== null)
             name += ' ('+ matches[1] +')';
     }
-    testMethod.call(this, name, extra, cb, deferred);
+    if (cb) {
+        testMethod.call(this, name, extra, function (t) {
+            if (!t._subtapped) {
+                var endMethod = t.end;
+                t.end = function (implicit) {
+                    if (!deferred || !implicit) {
+                        --testsPending;
+                        setImmediate(checkForEnd);
+                    }
+                    endMethod.call(t, implicit);
+                };
+                t._subtapped = true;
+            }
+            if (deferred && !deferred._subtapped) {
+                deferred._subtapped = true;
+                deferred.promise.then(function(data) {
+                    --testsPending;
+                    setImmediate(checkForEnd);
+                    return data; // not sure needed
+                });
+            }
+            return cb(t);
+        }, deferred);
+    }
+    else {
+        testMethod.call(this, name, extra, cb, deferred);
+        --testsPending;
+    }
 };
 
 tap.pipe(new Writable({
@@ -48,29 +82,6 @@ tap.pipe(new Writable({
     }
 }));
 
-/*
-class MyWritable extends Writable
-{
-    constructor(options) {
-        super(options);
-    }
-    
-    _write(chunk, encoding, done) {
-        process.send({
-            event: 'chunk',
-            text: chunk.toString()
-        });
-        done();
-    }
-    
-    end(chunk, encoding, done) {
-        super.end(chunk, encoding, done);
-        console.log("**** END");
-    }
-}
-tap.pipe(new MyWritable());
-*/
-
 //// INSTALLATION /////////////////////////////////////////////////////////////
 
 process.on('message', function (config) {
@@ -78,15 +89,6 @@ process.on('message', function (config) {
     testFileRegex = new RegExp(config.testFileRegexStr);
     selectedTest = config.selectedTest;
     require(config.filePath);
-
-    setImmediate(function () { // run after all tap nextTicks have depleted
-        /**/ return; // TBD setImmediate() runs too soon
-        process.send({
-            event: 'done',
-            lastTestNumber: testNumber
-        });
-        process.exit(0); // forked child must call this explicitly
-    });
 });
 
 tap.on('bailout', function (reason) {
@@ -96,3 +98,14 @@ tap.on('bailout', function (reason) {
     });
 });
 
+//// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
+
+function checkForEnd() {
+    if (testsPending > 0)
+        return;
+    process.send({
+        event: 'done',
+        lastTestNumber: testNumber
+    });
+    process.exit(0); // forked child must call this explicitly
+}

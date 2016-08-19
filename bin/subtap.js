@@ -70,8 +70,7 @@ var installerMap = {
         return installReport(subtap.RootTestReport);
     },
     tap: function() {
-        // nothing to do; not filtering output of parser
-        return null;
+        return process.stdout;
     }
 };
 
@@ -101,7 +100,7 @@ if (colorMode >= 10) {
 
 var selectedTest = options.selectedTest;
 if (selectedTest === 0 || selectedTest === true)
-    exitWithError("-n option requires a on-zero test number (e.g. -n42)");
+    exitWithError("-n option requires a non-zero test number (e.g. -n42)");
     
 var cwd = process.cwd();
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
