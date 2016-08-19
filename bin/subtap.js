@@ -3,6 +3,7 @@
 //// MODULES //////////////////////////////////////////////////////////////////
 
 var fs = require('fs');
+var Writable = require('stream').Writable;
 var resolveModule = require('resolve');
 var path = require('path');
 var minimist = require('minimist');
@@ -70,7 +71,12 @@ var installerMap = {
         return installReport(subtap.RootTestReport);
     },
     tap: function() {
-        return process.stdout;
+        return new Writable({
+            write: function(chunk, encoding, done) {
+                process.stdout.write(chunk.toString());
+                done();
+            }
+        });
     }
 };
 
@@ -126,6 +132,7 @@ var filePaths = []; // array of all test files to run
 var fileIndex = 0; // index of the next test file to run
 var testNumber = 0; // number of most-recently output root test
 var bailed = false; // whether test file bailed out
+var skippingChunks = false; // whether skipping TAP output
 
 //// RUN TESTS ////////////////////////////////////////////////////////////////
 
@@ -190,8 +197,13 @@ function runNextFile() {
     child.on('message', function (msg) {
         switch (msg.event) {
             case 'chunk':
-                // better or worse than spawning and piping stdout?
-                receiver.write(msg.text);
+                var text = msg.text;
+                if (/^\d+\.\.\d+/.test(text))
+                    skippingChunks = true;
+                if (!skippingChunks)
+                    receiver.write(text);
+                if (text.indexOf('TAP version') === 0)
+                    skippingChunks = false;
                 break;
             case 'bailout':
                 bailed = true;

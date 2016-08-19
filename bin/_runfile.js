@@ -14,9 +14,6 @@ var testFileRegex; // regex for pulling test file and line number from Error
 //// STATE ////////////////////////////////////////////////////////////////////
 
 var testNumber; // number of most-recently output root test
-//var queueCount = 0; // number of tests that have queued to run
-//var runCount = 0; // number of tests that have run undeferred
-var testsPending = 0;
 
 //// CUSTOMIZE TAP ////////////////////////////////////////////////////////////
 
@@ -30,7 +27,6 @@ tap.test = function subtapTest(name, extra, cb, deferred) {
     }
     if (!deferred) { // if initial registration
         ++testNumber;
-        ++testsPending;
         if (selectedTest !== false && testNumber !== selectedTest)
             return;
 
@@ -42,35 +38,16 @@ tap.test = function subtapTest(name, extra, cb, deferred) {
         if (matches !== null)
             name += ' ('+ matches[1] +')';
     }
-    if (cb) {
-        testMethod.call(this, name, extra, function (t) {
-            if (!t._subtapped) {
-                var endMethod = t.end;
-                t.end = function (implicit) {
-                    if (!deferred || !implicit) {
-                        --testsPending;
-                        setImmediate(checkForEnd);
-                    }
-                    endMethod.call(t, implicit);
-                };
-                t._subtapped = true;
-            }
-            if (deferred && !deferred._subtapped) {
-                deferred._subtapped = true;
-                deferred.promise.then(function(data) {
-                    --testsPending;
-                    setImmediate(checkForEnd);
-                    return data; // not sure needed
-                });
-            }
-            return cb(t);
-        }, deferred);
-    }
-    else {
-        testMethod.call(this, name, extra, cb, deferred);
-        --testsPending;
-    }
+    testMethod.call(this, name, extra, cb, deferred);
 };
+
+tap.tearDown(function() {
+    process.send({
+        event: 'done',
+        lastTestNumber: testNumber
+    });
+    process.exit(0); // forked child must call this explicitly
+});
 
 tap.pipe(new Writable({
     write: function(chunk, encoding, done) {
@@ -89,6 +66,7 @@ process.on('message', function (config) {
     testFileRegex = new RegExp(config.testFileRegexStr);
     selectedTest = config.selectedTest;
     require(config.filePath);
+    tap.end();
 });
 
 tap.on('bailout', function (reason) {
@@ -97,15 +75,3 @@ tap.on('bailout', function (reason) {
         reason: reason
     });
 });
-
-//// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
-
-function checkForEnd() {
-    if (testsPending > 0)
-        return;
-    process.send({
-        event: 'done',
-        lastTestNumber: testNumber
-    });
-    process.exit(0); // forked child must call this explicitly
-}
