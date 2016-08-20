@@ -12,7 +12,6 @@ var fork = require('child_process').fork;
 var _ = require('lodash');
 
 var subtap = require("../");
-var helper = require("../lib/helper");
 
 //// CONSTANTS ////////////////////////////////////////////////////////////////
 
@@ -56,20 +55,20 @@ if (options.help) {
     process.exit(0);
 }
 
-var installerMap = {
+var printerMakerMap = {
     all: function() {
-        return installReport(subtap.FullReport);
+        return makePrettyPrinter(subtap.FullReport);
     },
     fail: function () {
-        return installReport(subtap.FailureReport);
+        return makePrettyPrinter(subtap.FailureReport);
     },
     json: function() {
-        return new subtap.JsonPrinter({
+        return new subtap.JsonPrinter(process.stdout, {
             truncateStackAtPath: __filename
         });
     },
     tally: function() {
-        return installReport(subtap.RootTestReport);
+        return makePrettyPrinter(subtap.RootTestReport);
     },
     tap: function() {
         return new Writable({
@@ -82,13 +81,13 @@ var installerMap = {
 };
 
 if (dashDashOptions.length > 1)
-    exitWithError("more than one --output_format specified");
+    exitWithError("more than one output format specified");
 var outputFormat = 'tally';
 if (dashDashOptions.length === 1)
     outputFormat = dashDashOptions[0];
-var installReceiver = installerMap[outputFormat];
-if (!installReceiver)
-    exitWithError("unrecognized output format --"+ outputFormat);
+var makePrinter = printerMakerMap[outputFormat];
+if (!makePrinter)
+    exitWithError("unrecognized output format '"+ outputFormat +"'");
     
 var colorMode = options.colorMode;
 if (colorMode === true)
@@ -163,14 +162,14 @@ options._.forEach(function (pattern) {
 if (filePaths.length === 0)
     exitWithError("no files match pattern");
 
-var receiver = installReceiver(); // prepare to listen to run of tests
+var printer = makePrinter();
 runNextFile(); // run first file; each subsequent file runs after prev closes
 
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
 function exitWithError(message) {
     if (outputFormat !== 'tap')
-        receiver.abort();
+        printer.abort();
     console.log("*** %s ***\n", message);
     process.exit(1);
 }
@@ -187,14 +186,14 @@ function extractDashDashOptions(argv) {
     return dashDashTerms;
 }
 
-function installReport(reportClass) {
-    return new subtap.PrettyPrinter(new reportClass({
+function makePrettyPrinter(reportClass) {
+    return new subtap.PrettyPrinter(new reportClass(process.stdout, {
         tabSize: TAB_SIZE,
         styleMode: colorMode,
         highlightMargin: DIFF_HIGHLIGHT_MARGIN,
         minHighlightWidth: MIN_DIFF_HIGHLIGHT_WIDTH,
         truncateStackAtPath: __filename,
-        writeFunc: (canonical ? helper.canonicalize.bind(this, write) : write)
+        canonical: canonical
     }));
 }
 
@@ -211,7 +210,7 @@ function runNextFile() {
                 else if (/^\d+\.\.\d+/.test(text))
                     skippingChunks = true;
                 if (!skippingChunks)
-                    receiver.write(text);
+                    printer.write(text);
                 if (text.indexOf('TAP version') === 0)
                     skippingChunks = false;
                 break;
@@ -233,7 +232,7 @@ function runNextFile() {
             if (selectedTest !== false && selectedTest > testNumber)
                 exitWithError("test "+ selectedTest +" not found");
         }
-        receiver.end();
+        printer.end();
     });
     
     child.send({

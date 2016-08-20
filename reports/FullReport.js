@@ -6,8 +6,8 @@ var util = require('util');
 var BaseReport = require('./BaseReport');
 var helper = require('../lib/helper');
 
-function FullReport(printer, options) {
-    BaseReport.call(this, printer, options);
+function FullReport(outputStream, options) {
+    BaseReport.call(this, outputStream, options);
 }
 util.inherits(FullReport, BaseReport);
 module.exports = FullReport;

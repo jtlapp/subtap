@@ -7,8 +7,8 @@ As the report runs, it overwrites the current console line with the name of the 
 var util = require('util');
 var BaseReport = require('./BaseReport');
 
-function FailureReport(printer, options) {
-    BaseReport.call(this, printer, options);
+function FailureReport(outputStream, options) {
+    BaseReport.call(this, outputStream, options);
 }
 util.inherits(FailureReport, BaseReport);
 module.exports = FailureReport;

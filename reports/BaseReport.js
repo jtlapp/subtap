@@ -16,6 +16,7 @@ var helper = require('../lib/helper');
 
 var ROOT_TEST_QUALIFIER = "root"; // qualifier for root-level tests
 var REGEX_UNPRINTABLE = xregexp("[\\p{C}\\\\]", 'g');
+var REGEX_CANONICAL = new RegExp("(\r|\x1b\\[F|\x1b)", 'g');
 
 // see https://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg
 
@@ -42,6 +43,8 @@ var COLORMAP_256 = {
 // _minHighlightWidth - min width of highlighted multiline results
 // _highlightMargin - min index of right margin of highlighted multiline results
 // _maker - instance of LineMaker used for formatting output
+// _outputStream - stream to which to write output (a node Writable)
+// _closeStream - whether to call end() on the output stream
 
 //// PRIVATE STATE ////////////////////////////////////////////////////////////
 
@@ -53,30 +56,37 @@ var COLORMAP_256 = {
 //// CONSTRUCTION /////////////////////////////////////////////////////////////
 
 /**
+ * @param outputStream Stream to which to write output (a node Writable)
  * @param options
  *   - tabSize: width of each indentation level in spaces
  *   - truncateStackAtPath: Path of file in call stack at which to abbreviate stack to just this path (defaults to null for no truncation)
  *   - styleMode: degree to which to allow ANSI escape sequences. see the LineMaker.STYLE_ constants.
  *   - minHighlightWidth: min width of highlighted multiline results
  *   - highlightMargin: min index of right margin for highlighted multiline results
- *   - writeFunc: Function(text) for outputting generated text; defaults to a function that writes to stdout
+ *   - canonical: whether to visibly render control codes in output (defaults to false)
+ *   - closeStream: whether to call end() on the output stream (defaults to false, which is usual for stdout)
 */
 
-function BaseReport(options) {
+function BaseReport(outputStream, options) {
+    this._outputStream = outputStream;
     options = options || {};
     this._styleMode = options.styleMode || LineMaker.STYLE_ALL;
     this._tabSize = options.tabSize || 2;
     this._minHighlightWidth = options.minHighlightWidth || 40;
     this._highlightMargin = options.highlightMargin || 80;
     this._truncateStackAtPath = options.truncateStackAtPath || null;
+    this._closeStream = options.closeStream || false;
     
+    var self = this;
     this._maker = new LineMaker({
         tabSize: options.tabSize,
         styleMode: options.styleMode,
         colorMap16: COLORMAP_16,
         colorMap256: COLORMAP_256,
-        writeFunc: options.writeFunc || function (text) {
-            process.stdout.write(text);
+        writeFunc: function (text) {
+            if (options.canonical)
+                text = self._canonicalize(text);
+            outputStream.write(text);
         }
     });
     
@@ -148,6 +158,8 @@ BaseReport.prototype.closeReport = function (testStack, results, counts) {
         this._passedClosing(counts);
     else
         this._failedClosing(counts);
+    if (this._closeStream)
+        this._outputStream.end();
 };
 
 BaseReport.prototype.bailout = function (testStack, reason, counts) {
@@ -162,14 +174,28 @@ BaseReport.prototype.bailout = function (testStack, reason, counts) {
     }
 };
 
-//// PRIVATE METHODS //////////////////////////////////////////////////////////
-
-BaseReport.prototype._color = function (styleID, text) {
-    return this._maker.color(styleID, text);
-};
+//// RESTRICTED METHODS ///////////////////////////////////////////////////////
 
 BaseReport.prototype._bold = function (text) {
     return this._maker.style('bold', text);
+};
+
+BaseReport.prototype._canonicalize = function(text) {
+    return text.replace(REGEX_CANONICAL, function (match) {
+        switch (match) {
+            case "\r":
+                return "\\r\n";
+            case "\x1b[F":
+                return "\\^";
+            case "\x1b":
+                return "\\e";
+        }
+        return match;
+    });
+};
+
+BaseReport.prototype._color = function (styleID, text) {
+    return this._maker.color(styleID, text);
 };
 
 BaseReport.prototype._failedClosing = function (counts) {
@@ -183,6 +209,11 @@ BaseReport.prototype._failedClosing = function (counts) {
     this._maker.blankLine();
     this._maker.line(0, text);
     this._maker.blankLine();
+};
+
+BaseReport.prototype._makeAssertion = function (assert) {
+    var result = (assert.ok ? 'passed' : 'FAILED');
+    return result +"."+ assert.id +" - "+ assert.name;
 };
 
 BaseReport.prototype._makeName = function (bullet, testInfo, color) {
@@ -353,9 +384,4 @@ BaseReport.prototype._printTestContext = function (testStack) {
 
 BaseReport.prototype._printUpLine = function () {
     this._maker.upLine(); // subclass might override this
-};
-
-BaseReport.prototype._makeAssertion = function (assert) {
-    var result = (assert.ok ? 'passed' : 'FAILED');
-    return result +"."+ assert.id +" - "+ assert.name;
 };
