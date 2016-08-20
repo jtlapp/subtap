@@ -55,6 +55,9 @@ if (options.help) {
     process.exit(0);
 }
 
+var childPath = path.resolve(__dirname, "_runfile.js");
+var childEnv = (options.bailOnFail ? { TAP_BAIL: '1' } : {});
+
 var printerMakerMap = {
     all: function() {
         return makePrettyPrinter(subtap.FullReport);
@@ -64,7 +67,7 @@ var printerMakerMap = {
     },
     json: function() {
         return new subtap.JsonPrinter(process.stdout, {
-            truncateStackAtPath: __filename
+            truncateStackAtPath: childPath
         });
     },
     tally: function() {
@@ -129,9 +132,6 @@ catch(err) {
     require(tapPath); // assume testing subtap module itself
 }
 
-var childPath = path.resolve(__dirname, "_runfile.js");
-var childEnv = (options.bailOnFail ? { TAP_BAIL: '1' } : {});
-
 //// STATE ////////////////////////////////////////////////////////////////////
 
 var filePaths = []; // array of all test files to run
@@ -192,7 +192,7 @@ function makePrettyPrinter(reportClass) {
         styleMode: colorMode,
         highlightMargin: DIFF_HIGHLIGHT_MARGIN,
         minHighlightWidth: MIN_DIFF_HIGHLIGHT_WIDTH,
-        truncateStackAtPath: __filename,
+        truncateStackAtPath: childPath,
         canonical: canonical
     }));
 }
