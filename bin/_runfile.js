@@ -16,7 +16,6 @@ var maxFailedTests; // max number of failed tests allowed in parent run
 
 var testNumber; // number of most-recently output root test
 var failedTests; // number of failed tests so far in parent run
-var bailed = false; // whether a bailout is in progress
 
 //// INSTALLATION /////////////////////////////////////////////////////////////
 
@@ -43,10 +42,11 @@ tap.test = function subtapTest(name, extra, cb, deferred) {
     }
     if (cb) {
         testMethod.call(this, name, extra, function (t) {
-            if (bailed)
-                t.endAll();
-            else
-                return cb(t);
+            if (!t._subtapped) {
+                t.tearDown(tearDownTest.bind(t));
+                t._subtapped = true;
+            }
+            return cb(t);
         }, deferred);
     }
     else
@@ -59,30 +59,13 @@ tap.tearDown(function() {
         lastTestNumber: testNumber,
         failedTests: failedTests
     });
-    process.exit(0);
 });
-
-tap.on('bailout', bailout);
 
 tap.pipe(new Writable({
     write: function(chunk, encoding, done) {
-        var chunkStr = chunk.toString();
-        // console.log("CHUNK ["+ chunkStr.replace("\n", "\\n") +"]");
-        if (bailed) // may get notices for tests that didn't run
-            return done();
-        if (maxFailedTests > 0 && failedTests === maxFailedTests) {
-            if (/ +\.\.\. *$/m.test(chunkStr)) {
-                bailout();
-                chunkStr += "Bail out! Aborted after "+ failedTests +
-                                " failed test(s)\n";
-            }
-        }
-        else if (chunkStr.indexOf("not ok ") === 0)
-            ++failedTests;
-
         process.send({
             event: 'chunk',
-            text: chunkStr
+            text: chunk.toString()
         });
         done();
     }
@@ -100,10 +83,8 @@ process.on('message', function (config) {
 
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
-function bailout(reason) {
-    bailed = true;
-    process.send({
-        event: 'bailout',
-        reason: reason
-    });
+function tearDownTest() {
+    if (!this.passing() && maxFailedTests > 0 &&
+            ++failedTests === maxFailedTests)
+        this.bailout("Aborted after "+ failedTests +" failed test(s)"); 
 }

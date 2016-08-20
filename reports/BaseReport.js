@@ -47,6 +47,8 @@ var COLORMAP_256 = {
 
 // _depthShown - depth of nested test names that are currently shown
 // _rootFailed - whether the containing root-level test has failed
+// _lastFailureLevel - test stack depth of most recent root te
+// _bailed - whether the test bailed out
 
 //// CONSTRUCTION /////////////////////////////////////////////////////////////
 
@@ -80,6 +82,7 @@ function BaseReport(options) {
     
     this._depthShown = 0;
     this._rootFailed = false;
+    this._bailed = false;
 }
 module.exports = BaseReport;
 
@@ -148,9 +151,15 @@ BaseReport.prototype.closeReport = function (testStack, results, counts) {
 };
 
 BaseReport.prototype.bailout = function (testStack, reason, counts) {
-    this._failedClosing(counts);
-    this._maker.line(0, this._color('fail',
-            BaseReport.BULLET_FAIL +" BAIL OUT! "+ reason));
+    if (!this._bailed) { // only report 1st notice, at informative indentation
+        this._printTestContext(testStack);
+        var level = testStack.length;
+        if (/Aborted after \d+ failed/i.test(reason))
+            level = 1; // only aborts for failure count in root-level tests
+        this._maker.line(level, this._bold(this._color('fail',
+                BaseReport.BULLET_FAIL +" BAIL OUT! "+ reason)));
+        this._bailed = true;
+    }
 };
 
 //// PRIVATE METHODS //////////////////////////////////////////////////////////

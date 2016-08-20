@@ -41,6 +41,7 @@ if (options.help) {
         "\n"+
         "options:\n"+
         "  -b  : bail on first assertion to fail\n"+
+        "  -bN : bail after the Nth root test to fail\n"+
         "  -c0 : no color, emphasis, or other ANSI codes\n"+
         "  -c1 : monochrome mode, emphasis allowed\n"+
         "  -c2 : multicolor mode (default)\n"+
@@ -168,7 +169,7 @@ runNextFile(); // run first file; each subsequent file runs after prev closes
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
 function exitWithError(message) {
-    if (receiver)
+    if (outputFormat !== 'tap')
         receiver.abort();
     console.log("*** %s ***\n", message);
     process.exit(1);
@@ -205,18 +206,17 @@ function runNextFile() {
         switch (msg.event) {
             case 'chunk':
                 var text = msg.text;
-                if (/^\d+\.\.\d+/.test(text))
+                if (/^bail out!/i.test(text))
+                    bailed = true;
+                else if (/^\d+\.\.\d+/.test(text))
                     skippingChunks = true;
                 if (!skippingChunks)
                     receiver.write(text);
                 if (text.indexOf('TAP version') === 0)
                     skippingChunks = false;
                 break;
-            case 'bailout':
-                bailed = true;
-                break;
             case 'done':
-                // TBD: child.kill();
+                child.kill('SIGKILL');
                 testNumber = msg.lastTestNumber;
                 failedTests = msg.failedTests;
                 break;
@@ -225,14 +225,14 @@ function runNextFile() {
     
     child.on('exit', function (exitCode) {
         // exitCode == 1 if any test fails, so can't bail run
-        if (bailed)
-            return;
-        if (fileIndex < filePaths.length)
-            return runNextFile();
-        if (testNumber === 0)
-            exitWithError("no tests found");
-        if (selectedTest !== false && selectedTest > testNumber)
-            exitWithError("test "+ selectedTest +" not found");
+        if (!bailed) {
+            if (fileIndex < filePaths.length)
+                return runNextFile();
+            if (testNumber === 0)
+                exitWithError("no tests found");
+            if (selectedTest !== false && selectedTest > testNumber)
+                exitWithError("test "+ selectedTest +" not found");
+        }
         receiver.end();
     });
     
