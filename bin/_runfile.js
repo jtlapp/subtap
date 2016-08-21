@@ -11,11 +11,13 @@ var Writable = require('stream').Writable;
 var selectedTest; // number of single test to run, or 0 to run all tests
 var testFileRegex; // regex for pulling test file and line number from Error
 var maxFailedTests; // max number of failed tests allowed in parent run
+var embedExceptions; // whether to embed exceptions in TAP or end test run
 
 //// STATE ////////////////////////////////////////////////////////////////////
 
-var testNumber; // number of most-recently output root test
+var testNumber; // number of most-recently output root subtest
 var failedTests; // number of failed tests so far in parent run
+var exiting = false; // true to ignore tap compliants on premature exit
 
 //// INSTALLATION /////////////////////////////////////////////////////////////
 
@@ -23,6 +25,8 @@ var tap = require(process.argv[2]);
 
 var testMethod = tap.test;
 tap.test = function subtapTest(name, extra, cb, deferred) {
+    if (exiting)
+        return;
     if (!cb) {
         cb = extra; // cb might still be undefined if a TODO
         extra = {};
@@ -42,11 +46,13 @@ tap.test = function subtapTest(name, extra, cb, deferred) {
     }
     if (cb) {
         testMethod.call(this, name, extra, function (t) {
+            if (exiting)
+                return;
             if (!t._subtapped) {
                 t.tearDown(tearDownTest.bind(t));
                 t._subtapped = true;
             }
-            return cb(t);
+            return runTest(cb.bind(this, t), true);
         }, deferred);
     }
     else
@@ -63,10 +69,12 @@ tap.tearDown(function() {
 
 tap.pipe(new Writable({
     write: function(chunk, encoding, done) {
-        process.send({
-            event: 'chunk',
-            text: chunk.toString()
-        });
+        if (!exiting) {
+            process.send({
+                event: 'chunk',
+                text: chunk.toString()
+            });
+        }
         done();
     }
 }));
@@ -77,7 +85,10 @@ process.on('message', function (config) {
     selectedTest = config.selectedTest;
     failedTests = config.failedTests;
     maxFailedTests = config.maxFailedTests;
-    require(config.filePath);
+    embedExceptions = config.embedExceptions;
+    runTest(function() {
+        require(config.filePath);
+    }, false);
     tap.end();
 });
 
@@ -87,4 +98,19 @@ function tearDownTest() {
     if (!this.passing() && maxFailedTests > 0 &&
             ++failedTests === maxFailedTests)
         this.bailout("Aborted after "+ failedTests +" failed test(s)"); 
+}
+
+function runTest(testFunc, allowExceptionEmbedding) {
+    if (allowExceptionEmbedding && embedExceptions)
+        return testFunc();
+    try {
+        return testFunc();
+    }
+    catch (err) {
+        process.send({
+            event: 'error',
+            stack: err.stack
+        });
+        exiting = true;
+    }
 }

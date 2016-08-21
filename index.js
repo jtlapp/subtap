@@ -8,5 +8,5 @@ exports.JsonPrinter = require('./lib/JsonPrinter');
 // PrettyPrinter Reports
 
 exports.FullReport = require('./reports/FullReport');
-exports.RootTestReport = require('./reports/RootTestReport');
+exports.RootSubtestReport = require('./reports/RootSubtestReport');
 exports.FailureReport = require('./reports/FailureReport');

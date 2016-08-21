@@ -13,14 +13,14 @@ function FailureReport(outputStream, options) {
 util.inherits(FailureReport, BaseReport);
 module.exports = FailureReport;
 
-FailureReport.prototype.beginTest = function (testStack, testInfo) {
-    BaseReport.prototype.beginTest.call(this, testStack, testInfo);
+FailureReport.prototype.beginTest = function (subtestStack, testInfo) {
+    BaseReport.prototype.beginTest.call(this, subtestStack, testInfo);
     var formattedName = this._makeName(BaseReport.BULLET_PENDING, testInfo);
-    this._maker.tempLine(testStack.length - 1, formattedName);
+    this._maker.tempLine(subtestStack.length - 1, formattedName);
 };
 
-FailureReport.prototype.closeTest = function (testStack, results) {
-    BaseReport.prototype.closeTest.call(this, testStack, results);
+FailureReport.prototype.closeTest = function (subtestStack, results) {
+    BaseReport.prototype.closeTest.call(this, subtestStack, results);
 };
 
 FailureReport.prototype._printUpLine = function () {

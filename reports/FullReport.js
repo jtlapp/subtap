@@ -12,23 +12,23 @@ function FullReport(outputStream, options) {
 util.inherits(FullReport, BaseReport);
 module.exports = FullReport;
 
-FullReport.prototype.beginTest = function (testStack, testInfo) {
-    BaseReport.prototype.beginTest.call(this, testStack, testInfo);
-    this._printTestContext(testStack);
+FullReport.prototype.beginTest = function (subtestStack, testInfo) {
+    BaseReport.prototype.beginTest.call(this, subtestStack, testInfo);
+    this._printTestContext(subtestStack);
 };
 
-FullReport.prototype.assertionFailed = function (testStack, assert) {
+FullReport.prototype.assertionFailed = function (subtestStack, assert) {
     helper.truncateAssertStacks(assert, this._truncateStackAtPath);
-    this._printFailedAssertion(testStack, 'fail', assert);
+    this._printFailedAssertion(subtestStack, 'fail', assert);
 };
 
-FullReport.prototype.assertionPassed = function (testStack, assert) {
-    this._printTestContext(testStack);
+FullReport.prototype.assertionPassed = function (subtestStack, assert) {
+    this._printTestContext(subtestStack);
     var text = BaseReport.BULLET_PASS +" "+ this._makeAssertion(assert);
-    this._maker.line(testStack.length, text);
+    this._maker.line(subtestStack.length, text);
 };
 
-FullReport.prototype.closeTest = function (testStack, results) {
-    BaseReport.prototype.closeTest.call(this, testStack, results);
+FullReport.prototype.closeTest = function (subtestStack, results) {
+    BaseReport.prototype.closeTest.call(this, subtestStack, results);
     // ignore test results line when showing all tests and assertions
 };

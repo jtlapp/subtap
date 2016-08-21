@@ -14,7 +14,6 @@ var helper = require('../lib/helper');
 
 //// PRIVATE CONSTANTS ////////////////////////////////////////////////////////
 
-var ROOT_TEST_QUALIFIER = "root"; // qualifier for root-level tests
 var REGEX_UNPRINTABLE = xregexp("[\\p{C}\\\\]", 'g');
 var REGEX_CANONICAL = new RegExp("(\r|\x1b\\[F|\x1b)", 'g');
 
@@ -49,8 +48,7 @@ var COLORMAP_256 = {
 //// PRIVATE STATE ////////////////////////////////////////////////////////////
 
 // _depthShown - depth of nested test names that are currently shown
-// _rootFailed - whether the containing root-level test has failed
-// _lastFailureLevel - test stack depth of most recent root te
+// _rootSubtestFailed - whether the containing root subtest has failed
 // _bailed - whether the test bailed out
 
 //// CONSTRUCTION /////////////////////////////////////////////////////////////
@@ -91,7 +89,7 @@ function BaseReport(outputStream, options) {
     });
     
     this._depthShown = 0;
-    this._rootFailed = false;
+    this._rootSubtestFailed = false;
     this._bailed = false;
 }
 module.exports = BaseReport;
@@ -104,26 +102,26 @@ BaseReport.BULLET_PASS = '✓';
 
 //// PUBLIC METHODS ///////////////////////////////////////////////////////////
 
-BaseReport.prototype.beginTest = function (testStack, testInfo) {
-    if (testStack.length === 1)
-        this._rootFailed = false;
-    else if (testStack.length > 1)
+BaseReport.prototype.beginTest = function (subtestStack, testInfo) {
+    if (subtestStack.length === 1)
+        this._rootSubtestFailed = false;
+    else if (subtestStack.length > 1)
         testInfo.name = "Subtest: "+ testInfo.name;
 };
 
-BaseReport.prototype.comment = function (testStack, comment) {
+BaseReport.prototype.comment = function (subtestStack, comment) {
     // ignore by default
 };
 
-BaseReport.prototype.extra = function (testStack, extra) {
+BaseReport.prototype.extra = function (subtestStack, extra) {
     // ignore by default
 };
 
-BaseReport.prototype.assertionFailed = function (testStack, assert) {
-    if (testStack.length > 0) {
-        if (!this._rootFailed) {
+BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
+    if (subtestStack.length > 0) {
+        if (!this._rootSubtestFailed) {
             this._printUpLine();
-            var testInfo = testStack[0];
+            var testInfo = subtestStack[0];
             var text = this._color('fail', this._bold(BaseReport.BULLET_FAIL));
             text += ' '+ this._color('fail-emph', this._bold(testInfo.name));
             if (testInfo.file)
@@ -131,29 +129,29 @@ BaseReport.prototype.assertionFailed = function (testStack, assert) {
             this._maker.line(0, text);
             this._depthShown = 1;
         }
-        this._rootFailed = true;
+        this._rootSubtestFailed = true;
     }
-    this._printTestContext(testStack);
+    this._printTestContext(subtestStack);
     var self = this;
     if (this._truncateStackAtPath)
         helper.truncateAssertStacks(assert, this._truncateStackAtPath);
-    if (testStack.length === 0)
-        this._printFailedAssertion(testStack, 'fail-emph', assert);
+    if (subtestStack.length === 0)
+        this._printFailedAssertion(subtestStack, 'fail-emph', assert);
     else
-        this._printFailedAssertion(testStack, 'fail', assert);
+        this._printFailedAssertion(subtestStack, 'fail', assert);
 };
 
-BaseReport.prototype.assertionPassed = function (testStack, assert) {
+BaseReport.prototype.assertionPassed = function (subtestStack, assert) {
     var text = BaseReport.BULLET_PASS +" "+ this._makeAssertion(assert);
-    this._maker.tempLine(testStack.length, text);
+    this._maker.tempLine(subtestStack.length, text);
 };
 
-BaseReport.prototype.closeTest = function (testStack, results) {
-    if (this._depthShown === testStack.length)
+BaseReport.prototype.closeTest = function (subtestStack, results) {
+    if (this._depthShown === subtestStack.length)
         --this._depthShown;
 };
 
-BaseReport.prototype.closeReport = function (testStack, results, counts) {
+BaseReport.prototype.closeReport = function (subtestStack, results, counts) {
     if (counts.failedAssertions === 0)
         this._passedClosing(counts);
     else
@@ -162,12 +160,12 @@ BaseReport.prototype.closeReport = function (testStack, results, counts) {
         this._outputStream.end();
 };
 
-BaseReport.prototype.bailout = function (testStack, reason, counts) {
+BaseReport.prototype.bailout = function (subtestStack, reason, counts) {
     if (!this._bailed) { // only report 1st notice, at informative indentation
-        this._printTestContext(testStack);
-        var level = testStack.length;
+        this._printTestContext(subtestStack);
+        var level = subtestStack.length;
         if (/Aborted after \d+ failed/i.test(reason))
-            level = 1; // only aborts for failure count in root-level tests
+            level = 1; // only aborts for failure count of root subtests
         this._maker.line(level, this._bold(this._color('fail',
                 BaseReport.BULLET_FAIL +" BAIL OUT! "+ reason)));
         this._bailed = true;
@@ -199,10 +197,10 @@ BaseReport.prototype._color = function (styleID, text) {
 };
 
 BaseReport.prototype._failedClosing = function (counts) {
-    // "Failed n of N root tests, n of N assertions"
+    // "Failed n of N root subtests, n of N assertions"
     var text = "Failed "+
-        counts.failedRootTests +" of "+ counts.rootTests +" "+
-                ROOT_TEST_QUALIFIER +" tests, "+
+        counts.failedRootSubtests +" of "+ counts.rootSubtests +
+                " root subtests, "+
         counts.failedAssertions +" of "+ counts.assertions +
                 " assertions";
     text = this._bold(this._color('fail', text));
@@ -230,9 +228,9 @@ BaseReport.prototype._makeName = function (bullet, testInfo, color) {
 };
 
 BaseReport.prototype._passedClosing = function (counts) {
-    // "Passed all N root tests, all N assertions"
+    // "Passed all N root subtests, all N assertions"
     var text = "Passed all "+
-        counts.rootTests +" "+ ROOT_TEST_QUALIFIER +" tests, all "+
+        counts.rootSubtests +" root subtests, all "+
         counts.assertions +" assertions";
     text = this._bold(this._color('pass', text));
     this._maker.blankLine();
@@ -352,9 +350,9 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
 };
 
 BaseReport.prototype._printFailedAssertion = function (
-    testStack, styleID, assert)
+    subtestStack, styleID, assert)
 {
-    var indentLevel = testStack.length;
+    var indentLevel = subtestStack.length;
     var line = this._makeAssertion(assert);
     if (assert.time)
         line += " # time="+ assert.time +"ms";
@@ -372,9 +370,9 @@ BaseReport.prototype._printFailedAssertion = function (
     }
 };
 
-BaseReport.prototype._printTestContext = function (testStack) {
-    while (this._depthShown < testStack.length) {
-        var testInfo = testStack[this._depthShown];
+BaseReport.prototype._printTestContext = function (subtestStack) {
+    while (this._depthShown < subtestStack.length) {
+        var testInfo = subtestStack[this._depthShown];
         var formattedName =
                 this._makeName(BaseReport.BULLET_PENDING, testInfo);
         this._maker.line(this._depthShown, formattedName);

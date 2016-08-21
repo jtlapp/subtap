@@ -27,10 +27,11 @@ var options = minimist(argv, {
     alias: {
         b: 'bailOnFail',
         c: 'colorMode',
+        e: 'embedExceptions',
         h: 'help',
         n: 'selectedTest'
     },
-    boolean: [ 'b', 'c', 'h', 'n' ],
+    boolean: [ 'b', 'c', 'e', 'h', 'n' ],
 });
 
 if (options.help) {
@@ -40,16 +41,17 @@ if (options.help) {
         "\n"+
         "options:\n"+
         "  -b  : bail on first assertion to fail\n"+
-        "  -bN : bail after the Nth root test to fail\n"+
+        "  -bN : bail after the N root subtests fail\n"+
         "  -c0 : no color, emphasis, or other ANSI codes\n"+
         "  -c1 : monochrome mode, emphasis allowed\n"+
         "  -c2 : multicolor mode (default)\n"+
+        "  -e  : catch and embed subtest exceptions in output\n"+
         "  -h  : show this help information\n"+
         "  -nN : run only test number N\n"+
         "  --fail : restrict output to tests + assertions that fail\n"+
         "  --all  : output results of all tests and assertions\n"+
         "  --json : output TAP events in JSON\n"+
-        "  --tally: restrict output to root tests + failures (default)\n"+
+        "  --tally: restrict output to root subtests + failures (default)\n"+
         "  --tap  : output raw TAP text\n"
     );
     process.exit(0);
@@ -71,7 +73,7 @@ var printerMakerMap = {
         });
     },
     tally: function() {
-        return makePrettyPrinter(subtap.RootTestReport);
+        return makePrettyPrinter(subtap.RootSubtestReport);
     },
     tap: function() {
         return new Writable({
@@ -84,23 +86,23 @@ var printerMakerMap = {
 };
 
 if (dashDashOptions.length > 1)
-    exitWithError("more than one output format specified");
+    exitWithUserError("more than one output format specified");
 var outputFormat = 'tally';
 if (dashDashOptions.length === 1)
     outputFormat = dashDashOptions[0];
 var makePrinter = printerMakerMap[outputFormat];
 if (!makePrinter)
-    exitWithError("unrecognized output format '"+ outputFormat +"'");
+    exitWithUserError("unrecognized output format '"+ outputFormat +"'");
     
 var colorMode = options.colorMode;
 if (colorMode === true)
-    exitWithError("-cN option requires a color mode number (e.g. -c1)");
+    exitWithUserError("-cN option requires a color mode number (e.g. -c1)");
 if (colorMode === false)
     colorMode = 2;
 if (!(colorMode <= 2 || colorMode >= 10 && colorMode <= 12))
-    exitWithError("-cN option requires a valid color mode (-h for help)");
+    exitWithUserError("-cN option requires a valid color mode (-h for help)");
 
-// secret canonical output mode for self-testing = colorMode + 10
+// colorMode + 10 = secret canonical output mode for self-testing
 var canonical = false;
 if (colorMode >= 10) {
     canonical = true;
@@ -109,7 +111,7 @@ if (colorMode >= 10) {
 
 var selectedTest = options.selectedTest;
 if (selectedTest === 0 || selectedTest === true)
-    exitWithError("-n option requires a non-zero test number (e.g. -n42)");
+    exitWithUserError("-n option requires a non-zero test number (e.g. -n42)");
 
 var maxFailedTests = 0; // assume no maximum
 if (_.isNumber(options.bailOnFail)) {
@@ -136,7 +138,7 @@ catch(err) {
 
 var filePaths = []; // array of all test files to run
 var fileIndex = 0; // index of the next test file to run
-var testNumber = 0; // number of most-recently output root test
+var testNumber = 0; // number of most-recently output root subtest
 var failedTests = 0; // number of tests that have failed
 var bailed = false; // whether test file bailed out
 var skippingChunks = false; // whether skipping TAP output
@@ -150,7 +152,7 @@ if (options._.length === 0) {
     options._.push("tests/*.js");
 }
 
-// Run the test files strictly sequentially so that, for a given set of test files, root tests have consistent numbers from run-to-run.
+// Run the test files strictly sequentially so that, for a given set of test files, root subtests have consistent numbers from run-to-run.
 
 options._.forEach(function (pattern) {
     glob.sync(pattern, {
@@ -160,14 +162,34 @@ options._.forEach(function (pattern) {
     });
 });
 if (filePaths.length === 0)
-    exitWithError("no files match pattern");
+    exitWithUserError("no files match pattern");
 
 var printer = makePrinter();
 runNextFile(); // run first file; each subsequent file runs after prev closes
 
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
-function exitWithError(message) {
+function exitWithTestError(stack) {
+    var matches = stack.match(/ \(([^):]+)(:(\d+):(\d+))?/);
+    process.stderr.write("\n");
+    if (!_.isUndefined(matches[2])) {
+        try {
+            var fileText = fs.readFileSync(matches[1], 'utf8');
+            var lines = fileText.split("\n");
+            process.stderr.write(matches[1] + matches[2] +"\n");
+            process.stderr.write(lines[parseInt(matches[3]) - 1] +"\n");
+            process.stderr.write(' '.repeat(parseInt(matches[4] - 1)));
+            process.stderr.write("^\n");
+        }
+        catch (err) {
+            // if can't read the file, just show the exception (stack)
+        }
+    }
+    process.stderr.write(stack +"\n\n");
+    process.exit(1);
+}
+
+function exitWithUserError(message) {
     if (outputFormat !== 'tap')
         printer.abort();
     console.log("*** %s ***\n", message);
@@ -214,6 +236,10 @@ function runNextFile() {
                 if (text.indexOf('TAP version') === 0)
                     skippingChunks = false;
                 break;
+            case 'error':
+                child.kill('SIGKILL');
+                exitWithTestError(msg.stack);
+                break;
             case 'done':
                 child.kill('SIGKILL');
                 testNumber = msg.lastTestNumber;
@@ -228,9 +254,9 @@ function runNextFile() {
             if (fileIndex < filePaths.length)
                 return runNextFile();
             if (testNumber === 0)
-                exitWithError("no tests found");
+                exitWithUserError("no tests found");
             if (selectedTest !== false && selectedTest > testNumber)
-                exitWithError("test "+ selectedTest +" not found");
+                exitWithUserError("test "+ selectedTest +" not found");
         }
         printer.end();
     });
@@ -241,10 +267,7 @@ function runNextFile() {
         selectedTest: selectedTest,
         failedTests: failedTests,
         maxFailedTests: maxFailedTests,
+        embedExceptions: options.embedExceptions,
         filePath: filePaths[fileIndex++]
     });
-}
-
-function write(text) {
-    process.stdout.write(text);
 }
