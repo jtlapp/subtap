@@ -227,6 +227,74 @@ BaseReport.prototype._makeName = function (bullet, testInfo, color) {
     return text;
 };
 
+BaseReport.prototype._normalizeFunction = function (unusedName, value) {
+    // this method is called for each value during JSON stringify. it is passed
+    // unbound so can't refer to 'this'. it's a method so can be overridden.
+    
+    if (typeof value !== 'function') 
+        return value;
+    var functionLabel = 'Function';
+    var functionName = '(anonymous)';
+    if (value.name)
+        functionName = value.name;
+    else if (value.constructor && value.constructor.name) {
+        if (value.constructor.name !== "Function") {
+            functionLabel = 'instanceof';
+            functionName = value.constructor.name;
+        }
+    }
+    var obj = {};
+    obj[functionLabel] = functionName;
+
+    for (var propertyName in value) {
+        if (value.hasOwnProperty(propertyName))
+            obj[propertyName] = value[propertyName];
+    }
+    if (Object.keys(obj).length === 1)
+        return '['+ functionLabel +': '+ functionName +']';
+    return obj;
+};
+
+BaseReport.prototype._normalizeString = function (value) {
+    if (value === 'undefined' || value === 'null' ||
+            value === 'true' || value === 'false' ||
+            !_.isNaN(_.toNumber(value)))
+        return "'"+ value +"'";
+    value = xregexp.replace(value, REGEX_UNPRINTABLE, function(match) {
+        switch (match) {
+            case "\n":
+                return match;
+            case "\\":
+                return "\\\\";
+            case "\r":
+                return "\\r";
+            case "\t":
+                return "\\t";
+        };
+        var charCode = match.charCodeAt(0);
+        return "\\u"+ _.padStart(charCode.toString(16), 4, '0');
+    });
+    return value;
+};
+
+BaseReport.prototype._normalizeValue = function (value) {
+    var type = typeof value;
+    switch (type) {
+        case 'string':
+            value = this._normalizeString(value);
+            break;
+        case 'function':
+            value = this._normalizeFunction(null, value);
+            if (typeof value === 'object')
+                type = 'object';
+            break;
+    }
+    return {
+        type: type,
+        val: (type === 'object' ? value : String(value))
+    };
+};
+
 BaseReport.prototype._passedClosing = function (counts) {
     // "Passed all N root subtests, all N assertions"
     var text = "Passed all "+
@@ -238,112 +306,29 @@ BaseReport.prototype._passedClosing = function (counts) {
     this._maker.blankLine();
 };
 
-BaseReport.prototype._prepareValue = function (name, value) {
-    var type = typeof value;
-    switch (type) {
-        case 'string':
-            if (value === 'undefined' || value === 'null' ||
-                    value === 'true' || value === 'false' ||
-                    !_.isNaN(_.toNumber(value)))
-                return "'"+ value +"'";
-            if (value.indexOf("[Function:") === 0 ||
-                    value.indexOf("[instanceof:") === 0)
-                return '"'+ value.replace('"', '\\"') +'"';
-            value = xregexp.replace(value, REGEX_UNPRINTABLE, function(match) {
-                switch (match) {
-                    case "\n":
-                        return match;
-                    case "\\":
-                        return "\\\\";
-                    case "\r":
-                        return "\\r";
-                    case "\t":
-                        return "\\t";
-                };
-                var charCode = match.charCodeAt(0);
-                return "\\u"+ _.padStart(charCode.toString(16), 4, '0');
-            });
-            return value;
-
-        case 'function':
-            var functionLabel = 'Function';
-            functionName = '(anonymous)';
-            if (value.name)
-                functionName = value.name;
-            else if (value.constructor && value.constructor.name) {
-                if (value.constructor.name !== "Function") {
-                    functionLabel = 'instanceof';
-                    functionName = value.constructor.name;
-                }
-            }
-            var obj = {};
-            obj[functionLabel] = functionName;
-
-            for (var propertyName in value) {
-                if (value.hasOwnProperty(propertyName))
-                    obj[propertyName] = value[propertyName];
-            }
-            if (Object.keys(obj).length === 1)
-                return '['+ functionLabel +': '+ functionName +']';
-            return obj;
-    }
-    return value;
-};
-
 BaseReport.prototype._printDiffs = function (indentLevel, assert) {
-    var found = this._prepareValue(null, assert.diag.found);
-    if (typeof found === 'object')
-        found = JSON.stringify(found, this._prepareValue, "  ");
-    else
-        found = String(found);
+    var found = this._normalizeValue(assert.diag.found);
+    if (found.type === 'object')
+        found.val = JSON.stringify(found.val, this._normalizeFunction, "  ");
         
-    var wanted = this._prepareValue(null, assert.diag.wanted);
-    if (typeof wanted === 'object')
-        wanted = JSON.stringify(wanted, this._prepareValue, "  ");
-    else
-        wanted = String(wanted);
+    var wanted = this._normalizeValue(assert.diag.wanted);
+    if (wanted.type === 'object')
+        wanted.val = JSON.stringify(wanted.val, this._normalizeFunction, "  ");
         
-    var highlightMargin = this._highlightMargin;
-    var minHighlightWidth = this._minHighlightWidth;
     var leftParamMargin = indentLevel * this._tabSize;
-    var leftValueMargin = leftParamMargin + this._tabSize;
     var paramNameWidth = 8; // length of 'wanted: '
     
-    var singleLineWidth = highlightMargin - leftParamMargin - paramNameWidth;
-    if (found.length < singleLineWidth && // leave room for initial space
-            found.indexOf("\n") === -1 && 
-            wanted.length < singleLineWidth &&
-            wanted.indexOf("\n") === -1)
+    var singleLineWidth =
+            this._highlightMargin - leftParamMargin - paramNameWidth;
+    if (found.val.length < singleLineWidth && // leave room for initial space
+            found.val.indexOf("\n") === -1 && 
+            wanted.val.length < singleLineWidth &&
+            wanted.val.indexOf("\n") === -1)
     {
-        if (this._styleMode > LineMaker.STYLE_MONOCHROME) {
-            found = ' '+ found;
-            if (found.length < singleLineWidth)
-                found += ' ';
-        }
-        var foundHighlight = this._color('found', found);
-        this._maker.line(indentLevel, 'found:  '+ foundHighlight);
-
-        wanted = ' '+ wanted;
-        if (wanted.length < singleLineWidth)
-            wanted += ' ';
-        var wantedHighlight = this._color('wanted', wanted);
-        this._maker.line(indentLevel, 'wanted: '+ wantedHighlight);
+        this._printSingleLineDiffs(indentLevel, found, wanted, singleLineWidth);
     }
-    else {
-        var multilineWidth = highlightMargin - leftValueMargin;
-        if (multilineWidth < minHighlightWidth)
-            multilineWidth = minHighlightWidth;
-
-        var foundHighlight =
-                this._maker.colorWrap('found', found, multilineWidth);
-        this._maker.line(indentLevel, 'found: |');
-        this._maker.multiline(indentLevel + 1, foundHighlight);
-        
-        var wantedHighlight =
-                this._maker.colorWrap('wanted', wanted, multilineWidth);
-        this._maker.line(indentLevel, 'wanted: |');
-        this._maker.multiline(indentLevel + 1, wantedHighlight);
-    }
+    else
+        this._printMultiLineDiffs(indentLevel, found, wanted, leftParamMargin);
     
     delete(assert.diag['found']);
     delete(assert.diag['wanted']);
@@ -368,6 +353,42 @@ BaseReport.prototype._printFailedAssertion = function (
         });
         this._maker.multiline(indentLevel + 1, diagText);
     }
+};
+
+BaseReport.prototype._printMultiLineDiffs = function (
+        indentLevel, found, wanted, leftParamMargin)
+{
+    var leftValueMargin = leftParamMargin + this._tabSize;
+    var multilineWidth = this._highlightMargin - leftValueMargin;
+    if (multilineWidth < this._minHighlightWidth)
+        multilineWidth = this._minHighlightWidth;
+
+    var foundHighlight =
+            this._maker.colorWrap('found', found.val, multilineWidth);
+    this._maker.line(indentLevel, 'found: |');
+    this._maker.multiline(indentLevel + 1, foundHighlight);
+    
+    var wantedHighlight =
+            this._maker.colorWrap('wanted', wanted.val, multilineWidth);
+    this._maker.line(indentLevel, 'wanted: |');
+    this._maker.multiline(indentLevel + 1, wantedHighlight);
+};
+
+BaseReport.prototype._printSingleLineDiffs = function (
+        indentLevel, found, wanted, lineWidth)
+{
+    if (this._styleMode > LineMaker.STYLE_MONOCHROME) {
+        found.val = ' '+ found.val;
+        if (found.val.length < lineWidth)
+            found.val += ' ';
+        wanted.val = ' '+ wanted.val;
+        if (wanted.val.length < lineWidth)
+            wanted.val += ' ';
+    }
+    var foundHighlight = this._color('found', found.val);
+    this._maker.line(indentLevel, 'found:  '+ foundHighlight);
+    var wantedHighlight = this._color('wanted', wanted.val);
+    this._maker.line(indentLevel, 'wanted: '+ wantedHighlight);
 };
 
 BaseReport.prototype._printTestContext = function (subtestStack) {

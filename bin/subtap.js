@@ -254,7 +254,7 @@ function runNextFile() {
             if (fileIndex < filePaths.length)
                 return runNextFile();
             if (testNumber === 0)
-                exitWithUserError("no tests found");
+                exitWithUserError("no subtests found");
             if (selectedTest !== false && selectedTest > testNumber)
                 exitWithUserError("test "+ selectedTest +" not found");
         }
