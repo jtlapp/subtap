@@ -28,10 +28,11 @@ var options = minimist(argv, {
         b: 'bailOnFail',
         c: 'colorMode',
         e: 'embedExceptions',
+        f: 'showFunctionSource',
         h: 'help',
         n: 'selectedTest'
     },
-    boolean: [ 'b', 'c', 'e', 'h', 'n' ],
+    boolean: [ 'b', 'c', 'e', 'f', 'h', 'n' ],
 });
 
 if (options.help) {
@@ -46,6 +47,7 @@ if (options.help) {
         "  -c1 : monochrome mode, emphasis allowed\n"+
         "  -c2 : multicolor mode (default)\n"+
         "  -e  : catch and embed subtest exceptions in output\n"+
+        "  -f  : output entire source of functions found in diffs\n"+
         "  -h  : show this help information\n"+
         "  -nN : run only test number N\n"+
         "  --fail : restrict output to tests + assertions that fail\n"+
@@ -215,6 +217,7 @@ function makePrettyPrinter(reportClass) {
         highlightMargin: DIFF_HIGHLIGHT_MARGIN,
         minHighlightWidth: MIN_DIFF_HIGHLIGHT_WIDTH,
         truncateStackAtPath: childPath,
+        showFunctionSource: options.showFunctionSource,
         canonical: canonical
     }));
 }
@@ -225,6 +228,17 @@ function runNextFile() {
     
     child.on('message', function (msg) {
         switch (msg.event) {
+            case 'ready':
+                child.send({
+                    priorTestNumber: testNumber,
+                    testFileRegexStr: testFileRegexStr,
+                    selectedTest: selectedTest,
+                    failedTests: failedTests,
+                    maxFailedTests: maxFailedTests,
+                    embedExceptions: options.embedExceptions,
+                    filePath: filePaths[fileIndex++]
+                });
+                break;
             case 'chunk':
                 var text = msg.text;
                 if (/^bail out!/i.test(text))
@@ -259,15 +273,5 @@ function runNextFile() {
                 exitWithUserError("test "+ selectedTest +" not found");
         }
         printer.end();
-    });
-    
-    child.send({
-        priorTestNumber: testNumber,
-        testFileRegexStr: testFileRegexStr,
-        selectedTest: selectedTest,
-        failedTests: failedTests,
-        maxFailedTests: maxFailedTests,
-        embedExceptions: options.embedExceptions,
-        filePath: filePaths[fileIndex++]
     });
 }

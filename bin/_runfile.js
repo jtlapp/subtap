@@ -4,7 +4,18 @@ Runs a single test file in an isolated child process. Takes a single argument co
 
 //// MODULES //////////////////////////////////////////////////////////////////
 
+var path = require('path');
 var Writable = require('stream').Writable;
+
+var tapPath = process.argv[2];
+var tap = require(tapPath);
+var tapTest = require(path.resolve(tapPath, '../../lib/test.js'));
+var tapSynonyms = require(path.resolve(tapPath, '../../lib/synonyms.js'));
+
+//// CONSTANTS ////////////////////////////////////////////////////////////////
+
+// these are the object types that the 'deeper' module explicitly handles
+var IGNORED_OBJECT_TYPES = [ 'Buffer', 'Date', 'Object', 'RegExp' ];
 
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
@@ -21,10 +32,8 @@ var exiting = false; // true to ignore tap compliants on premature exit
 
 //// INSTALLATION /////////////////////////////////////////////////////////////
 
-var tap = require(process.argv[2]);
-
 var testMethod = tap.test;
-tap.test = function subtapTest(name, extra, cb, deferred) {
+tap.test = function subtapRootSubtest(name, extra, cb, deferred) {
     if (exiting)
         return;
     if (!cb) {
@@ -44,20 +53,22 @@ tap.test = function subtapTest(name, extra, cb, deferred) {
         if (matches !== null)
             name += ' ('+ matches[1] +')';
     }
-    if (cb) {
-        testMethod.call(this, name, extra, function (t) {
-            if (exiting)
-                return;
-            if (!t._subtapped) {
-                t.tearDown(tearDownTest.bind(t));
-                t._subtapped = true;
-            }
-            return runTest(cb.bind(this, t), true);
-        }, deferred);
-    }
-    else
-        testMethod.call(this, name, extra, cb, deferred);
+    if (!cb)
+        return testMethod.call(this, name, extra, cb, deferred);
+
+    return testMethod.call(this, name, extra, function (t) {
+        if (exiting)
+            return;
+        if (!t._subtapped) {
+            t.tearDown(tearDownTest.bind(t));
+            t._subtapped = true;
+        }
+        return runTest(cb.bind(this, t), true);
+    }, deferred);
 };
+
+installTypedAsserts(tap);
+installTypedAsserts(tapTest.prototype);
 
 tap.tearDown(function() {
     process.send({
@@ -86,18 +97,50 @@ process.on('message', function (config) {
     failedTests = config.failedTests;
     maxFailedTests = config.maxFailedTests;
     embedExceptions = config.embedExceptions;
+    
     runTest(function() {
         require(config.filePath);
     }, false);
     tap.end();
 });
 
+process.send({ event: 'ready' });
+
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
-function tearDownTest() {
-    if (!this.passing() && maxFailedTests > 0 &&
-            ++failedTests === maxFailedTests)
-        this.bailout("Aborted after "+ failedTests +" failed test(s)"); 
+function installAssertSynonyms(t, assertName) {
+    // adapted from node-tap/lib/assert.js
+    tapSynonyms[assertName].forEach(function (s) {
+        Object.defineProperty(t, s, {
+            value: t[assertName],
+            enumerable: false,
+            configurable: true,
+            writable: true
+        });
+    });
+}
+
+function installTypedAsserts(t) {
+    t._overriddenStrictSame = t.strictSame;
+    t.strictSame = function subtapStrictSame(f, w, m, e) {
+        var objectsFound = [];
+        var objectsMade = [];
+        f = typifyObject(objectsFound, objectsMade, f);
+        w = typifyObject(objectsFound, objectsMade, w);
+        return this._overriddenStrictSame(f, w, m, e);
+    };
+
+    t._overriddenStrictNotSame = t.strictNotSame;
+    t.strictNotSame = function subtapStrictNotSame(f, w, m, e) {
+        var objectsFound = [];
+        var objectsMade = [];
+        f = typifyObject(objectsFound, objectsMade, f);
+        w = typifyObject(objectsFound, objectsMade, w);
+        return this._overriddenStrictNotSame(f, w, m, e);
+    };
+    
+    installAssertSynonyms(t, 'strictSame');
+    installAssertSynonyms(t, 'strictNotSame');
 }
 
 function runTest(testFunc, allowExceptionEmbedding) {
@@ -113,4 +156,35 @@ function runTest(testFunc, allowExceptionEmbedding) {
         });
         exiting = true;
     }
+}
+
+function tearDownTest() {
+    if (!this.passing() && maxFailedTests > 0 &&
+            ++failedTests === maxFailedTests)
+        this.bailout("Aborted after "+ failedTests +" failed test(s)"); 
+}
+
+function typifyObject(objectsFound, objectsMade, obj) {
+    var _instanceof_ = obj.constructor.name;
+    if (IGNORED_OBJECT_TYPES.indexOf(_instanceof_) >= 0)
+        return obj;
+    
+    var index = objectsFound.indexOf(obj);
+    if (index >= 0)
+        return objectsMade[index];
+        
+    var newObject = { _instanceof_: _instanceof_ };
+    objectsFound.push(obj);
+    objectsMade.push(newObject);
+    var value;
+
+    Object.keys(obj).forEach(function (key) {
+        value = obj[key];
+        if (typeof value === 'object')
+            newObject[key] = typifyObject(objectsFound, objectsMade, value);
+        else
+            newObject[key] = value;
+    });
+    
+    return newObject;
 }
