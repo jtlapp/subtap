@@ -1,5 +1,7 @@
 /******************************************************************************
 Runs a single test file in an isolated child process. Takes a single argument containing the path to the node-tap installation to employ.
+
+Note: All monkey patches of tap should be done within this file so that they get stripped from stack traces reported in assertion test results.
 ******************************************************************************/
 
 //// MODULES //////////////////////////////////////////////////////////////////

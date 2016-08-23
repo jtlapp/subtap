@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+// TBD: add timeout for _runfile ready or done events
+
 //// MODULES //////////////////////////////////////////////////////////////////
 
 var fs = require('fs');
@@ -15,7 +17,7 @@ var subtap = require("../");
 
 //// CONSTANTS ////////////////////////////////////////////////////////////////
 
-var TAB_SIZE = 2; // spaces by which to indent each nested level of data
+var TAB_SIZE = 2; // default spaces by which to indent each level of nesting
 var DIFF_HIGHLIGHT_MARGIN = 80; // right margin of multiline highlights
 var MIN_DIFF_HIGHLIGHT_WIDTH = 30; // min. width of multiline highlights
 
@@ -30,9 +32,11 @@ var options = minimist(argv, {
         e: 'embedExceptions',
         f: 'showFunctionSource',
         h: 'help',
-        n: 'selectedTest'
+        i: 'tabSize',
+        n: 'selectedTest',
+        w: 'wrapColumn'
     },
-    boolean: [ 'b', 'c', 'e', 'f', 'h', 'n' ],
+    boolean: [ 'b', 'c', 'e', 'f', 'h', 'i', 'n', 'w' ],
 });
 
 if (options.help) {
@@ -49,7 +53,10 @@ if (options.help) {
         "  -e  : catch and embed subtest exceptions in output\n"+
         "  -f  : output entire source of functions found in diffs\n"+
         "  -h  : show this help information\n"+
+        "  -iN : indent each level of nesting by N spaces (default 2)\n"+
         "  -nN : run only test number N\n"+
+        //"  -mN : min width of failure results output area (default ?)\n"+
+        //"  -wN : wrap failure results output at Nth column (default 80)\n"+
         "  --fail : restrict output to tests + assertions that fail\n"+
         "  --all  : output results of all tests and assertions\n"+
         "  --json : output TAP events in JSON\n"+
@@ -120,6 +127,10 @@ if (_.isNumber(options.bailOnFail)) {
     maxFailedTests = options.bailOnFail;
     options.bailOnFail = false;
 }
+if (options.tabSize === true || options.tabSize === 0)
+    exitWithUserError("-iN option requires a tab size N >= 1");
+//if (options.wrapColumn === true || options.wrapColumn < 20 /*broken*/)
+//    exitWithUserError("-wN option requires a wrap column N >= 20");
     
 var cwd = process.cwd();
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
@@ -192,7 +203,7 @@ function exitWithTestError(stack) {
 }
 
 function exitWithUserError(message) {
-    if (outputFormat !== 'tap')
+    if (outputFormat !== 'tap' && printer)
         printer.abort();
     console.log("*** %s ***\n", message);
     process.exit(1);
@@ -212,7 +223,7 @@ function extractDashDashOptions(argv) {
 
 function makePrettyPrinter(reportClass) {
     return new subtap.PrettyPrinter(new reportClass(process.stdout, {
-        tabSize: TAB_SIZE,
+        tabSize: options.tabSize || TAB_SIZE,
         styleMode: colorMode,
         highlightMargin: DIFF_HIGHLIGHT_MARGIN,
         minHighlightWidth: MIN_DIFF_HIGHLIGHT_WIDTH,

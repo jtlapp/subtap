@@ -10,7 +10,7 @@ var xregexp = require('xregexp');
 var _ = require('lodash');
 
 var LineMaker = require('../lib/LineMaker');
-var helper = require('../lib/helper');
+var stack = require('../lib/stack');
 
 //// PRIVATE CONSTANTS ////////////////////////////////////////////////////////
 
@@ -46,6 +46,7 @@ var COLORMAP_256 = {
 // _highlightMargin - min index of right margin of highlighted multiline results
 // _showFunctionSource - whether to output entire source of functions
 // _maker - instance of LineMaker used for formatting output
+// _indent - string of spaces by which to indent each JSON nesting
 // _outputStream - stream to which to write output (a node Writable)
 // _closeStream - whether to call end() on the output stream
 
@@ -93,6 +94,7 @@ function BaseReport(outputStream, options) {
             outputStream.write(text);
         }
     });
+    this._indent = this._maker.spaces(this._tabSize);
     
     this._depthShown = 0;
     this._rootSubtestFailed = false;
@@ -140,7 +142,7 @@ BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
     this._printTestContext(subtestStack);
     var self = this;
     if (this._truncateStackAtPath)
-        helper.truncateAssertStacks(assert, this._truncateStackAtPath);
+        stack.truncateAssertStacks(assert, this._truncateStackAtPath);
     if (subtestStack.length === 0)
         this._printFailedAssertion(subtestStack, 'fail-emph', assert);
     else
@@ -215,6 +217,15 @@ BaseReport.prototype._failedClosing = function (counts) {
     this._maker.blankLine();
 };
 
+BaseReport.prototype._isAmbiguousString = function (typedValue) {
+    return (typedValue.type === 'string' && (
+            typedValue.val === 'undefined' || typedValue.val === 'null' ||
+            typedValue.val === 'true' || typedValue.val === 'false' ||
+            !_.isNaN(_.toNumber(typedValue.val)) ||
+            !_.isNaN(_.toNumber(typedValue.val.replace('O', '0')))
+        ));
+};
+
 BaseReport.prototype._makeAssertion = function (assert) {
     var result = (assert.ok ? 'passed' : 'FAILED');
     return result +"."+ assert.id +" - "+ assert.name;
@@ -233,42 +244,42 @@ BaseReport.prototype._makeName = function (bullet, testInfo, color) {
     return text;
 };
 
-BaseReport.prototype._normalizeFunction = function (jsonName, value) {
-    if (!this._showFunctionSource && REGEX_FUNCTION_SIG.test(value))
-        return _.trimEnd(value.substr(0, value.indexOf("{")));
-    return value;
-};
+BaseReport.prototype._normalizeTypedValues = function (found, wanted) {
 
-BaseReport.prototype._normalizeString = function (value) {
-    if (value === 'undefined' || value === 'null' ||
-            value === 'true' || value === 'false' ||
-            !_.isNaN(_.toNumber(value)))
-        return "'"+ value +"'";
+    // identify serialized functions and (by default) remove all but signature
     
-    return this._normalizeFunction(null, value);
-    /*
-    value = xregexp.replace(value, REGEX_UNPRINTABLE, function(match) {
-        switch (match) {
-            case "\n":
-                return match;
-            case "\\":
-                return "\\\\";
-            case "\r":
-                return "\\r";
-            case "\t":
-                return "\\t";
-        };
-        var charCode = match.charCodeAt(0);
-        return "\\u"+ _.padStart(charCode.toString(16), 4, '0');
-    });
-    return value;
-    */
-};
+    function normalizeFunction(self, typedValue) {
+        var newVal = self._truncateFunction(null, typedValue.val);
+        if (newVal !== typedValue.val) {
+            typedValue.type = 'function';
+            typedValue.val = newVal;
+        }
+    }
+    normalizeFunction(this, found);
+    normalizeFunction(this, wanted);
+    
+    // if either is an ambiguous string, put it in quotes to clarify that it
+    // is a string, and quote the other too for easier visual comparison
+    
+    var shouldQuote = this._isAmbiguousString(found) ||
+            this._isAmbiguousString(wanted);
+    if (shouldQuote && found.type === 'string')
+        found.val = "'"+ found.val +"'"; // won't contain '
+    if (shouldQuote && wanted.type === 'string')
+        wanted.val = "'"+ wanted.val +"'"; // won't contain '
+        
+    // represent values as strings, truncating functions within JSON
 
-BaseReport.prototype._normalizeValue = function (value) {
-    if (typeof value === 'string')
-        return this._normalizeString(value);
-    return value;
+    function makeString(self, typedValue) {
+        if (typedValue.type === 'object') {
+            typedValue.val = JSON.stringify(typedValue.val,
+                    self._truncateFunction, self._indent);
+        }
+        else
+            typedValue.val = String(typedValue.val); // okay if val a string
+    }
+    makeString(this, found);
+    makeString(this, wanted);
 };
 
 BaseReport.prototype._passedClosing = function (counts) {
@@ -283,23 +294,27 @@ BaseReport.prototype._passedClosing = function (counts) {
 };
 
 BaseReport.prototype._printDiffs = function (indentLevel, assert) {
-    var found = this._normalizeValue(assert.diag.found);
-    if (typeof found === 'object')
-        found = JSON.stringify(found, this._normalizeFunction, "  ");
-        
-    var wanted = this._normalizeValue(assert.diag.wanted);
-    if (typeof wanted === 'object')
-        wanted = JSON.stringify(wanted, this._normalizeFunction, "  ");
-        
+
+    // normalize found and wanted values to strings
+
+    function makeTypedValue(value) {
+        return { type: typeof value, val: value };
+    }
+    var found = makeTypedValue(assert.diag.found);
+    var wanted = makeTypedValue(assert.diag.wanted);
+    this._normalizeTypedValues(found, wanted);
+
+    // output the value differences in the appropriate display format
+
     var leftParamMargin = indentLevel * this._tabSize;
     var paramNameWidth = 8; // length of 'wanted: '
-    
+
     var singleLineWidth =
             this._highlightMargin - leftParamMargin - paramNameWidth;
-    if (found.length < singleLineWidth && // leave room for initial space
-            found.indexOf("\n") === -1 && 
-            wanted.length < singleLineWidth &&
-            wanted.indexOf("\n") === -1)
+    if (found.val.length < singleLineWidth && // leave room for initial space
+            found.val.indexOf("\n") === -1 && 
+            wanted.val.length < singleLineWidth &&
+            wanted.val.indexOf("\n") === -1)
     {
         this._printSingleLineDiffs(indentLevel, found, wanted, singleLineWidth);
     }
@@ -340,12 +355,12 @@ BaseReport.prototype._printMultiLineDiffs = function (
         multilineWidth = this._minHighlightWidth;
 
     var foundHighlight =
-            this._maker.colorWrap('found', found, multilineWidth);
+            this._maker.colorWrap('found', found.val, multilineWidth);
     this._maker.line(indentLevel, 'found: |');
     this._maker.multiline(indentLevel + 1, foundHighlight);
     
     var wantedHighlight =
-            this._maker.colorWrap('wanted', wanted, multilineWidth);
+            this._maker.colorWrap('wanted', wanted.val, multilineWidth);
     this._maker.line(indentLevel, 'wanted: |');
     this._maker.multiline(indentLevel + 1, wantedHighlight);
 };
@@ -354,16 +369,16 @@ BaseReport.prototype._printSingleLineDiffs = function (
         indentLevel, found, wanted, lineWidth)
 {
     if (this._styleMode > LineMaker.STYLE_MONOCHROME) {
-        found = ' '+ found;
-        if (found.length < lineWidth)
-            found += ' ';
-        wanted = ' '+ wanted;
-        if (wanted.length < lineWidth)
-            wanted += ' ';
+        found.val = ' '+ found.val;
+        if (found.val.length < lineWidth)
+            found.val += this._color('found', ' '); // assume \x1b in found
+        wanted.val = ' '+ wanted.val;
+        if (wanted.val.length < lineWidth)
+            wanted.val += this._color('wanted', ' '); // assume \x1b in wanted
     }
-    var foundHighlight = this._color('found', found);
+    var foundHighlight = this._color('found', found.val);
     this._maker.line(indentLevel, 'found:  '+ foundHighlight);
-    var wantedHighlight = this._color('wanted', wanted);
+    var wantedHighlight = this._color('wanted', wanted.val);
     this._maker.line(indentLevel, 'wanted: '+ wantedHighlight);
 };
 
@@ -379,4 +394,11 @@ BaseReport.prototype._printTestContext = function (subtestStack) {
 
 BaseReport.prototype._printUpLine = function () {
     this._maker.upLine(); // subclass might override this
+};
+
+BaseReport.prototype._truncateFunction = function (jsonName, value) {
+    if (typeof value !== 'string' || this._showFunctionSource ||
+            !REGEX_FUNCTION_SIG.test(value))
+        return value;
+    return _.trimEnd(value.substr(0, value.indexOf("{")));
 };
