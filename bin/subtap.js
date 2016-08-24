@@ -74,8 +74,6 @@ if (basicOptions.help) {
 }
 
 var childPath = path.resolve(__dirname, "_runfile.js");
-var childEnv = (basicOptions.bailOnFail ? { TAP_BAIL: '1' } : {});
-
 var printerMakerMap = {
     all: function() {
         return makePrettyPrinter(subtap.FullReport);
@@ -134,6 +132,8 @@ if (_.isNumber(basicOptions.bailOnFail)) {
     maxFailedTests = basicOptions.bailOnFail;
     basicOptions.bailOnFail = false;
 }
+var childEnv = (basicOptions.bailOnFail ? { TAP_BAIL: '1' } : {});
+
 if (basicOptions.tabSize === true || basicOptions.tabSize === 0)
     exitWithUserError("-iN option requires a tab size N >= 1");
     
@@ -289,8 +289,10 @@ function runNextFile() {
                 break;
             case 'chunk':
                 var text = msg.text;
-                if (/^bail out!/i.test(text))
+                if (/^bail out!/i.test(text)) {
+                    clearTimeout(timer);
                     bailed = true;
+                }
                 else if (/^\d+\.\.\d+/.test(text))
                     skippingChunks = true;
                 if (!skippingChunks)
@@ -334,7 +336,7 @@ function awaitHeartbeat(child) {
     timer = setTimeout(function() {
         if (!gotPulse) {
             child.kill('SIGKILL');
-            var filePath = filePaths[fileIndex];
+            var filePath = filePaths[fileIndex - 1];
             if (filePath.indexOf(cwd) === 0)
                 filePath = filePath.substr(cwd.length + 1);
             writeErrorMessage(filePath +" timed out after "+

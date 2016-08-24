@@ -232,14 +232,6 @@ BaseReport.prototype._failedClosing = function (counts) {
     this._maker.blankLine();
 };
 
-BaseReport.prototype._isAmbiguousString = function (str) {
-    return (str === 'undefined' || str === 'null' ||
-            str === 'true' || str === 'false' ||
-            !_.isNaN(_.toNumber(str)) ||
-            !_.isNaN(_.toNumber(str.replace('O', '0')))
-        );
-};
-
 BaseReport.prototype._makeAssertion = function (assert) {
     var result = (assert.ok ? 'passed' : 'FAILED');
     return result +"."+ assert.id +" - "+ assert.name;
@@ -269,15 +261,20 @@ BaseReport.prototype._normalizeValue = function (value, mustQuote) {
         type = 'function';
     value = newVal;
     
-    // quote string values that might not be interpreted as strings, and
-    // make all newlines visible.
+    // quote single-line string values and make all newlines visible in
+    // multiline values. because all values that are ambiguously strings or
+    // JS-native values (e.g. "undefined") have no newlines, they are quotes,
+    // eliminating possibility of ambiguity.
     
     if (type === 'string') {
-        if (mustQuote || this._isAmbiguousString(value)) {
+        if (mustQuote || value.indexOf("\n") === -1) {
+            // in this case, one of the compared strings has no "\n"
+            value = value.replace("\n", "\\n");
             value = "'"+ value +"'"; // this value won't contain '
             quoted = true;
         }
-        value = value.replace("\n", BaseReport.NEWLINE_SUB);
+        else
+            value = value.replace("\n", BaseReport.NEWLINE_SUB);
     }
         
     // represent values as strings, truncating functions within JSON
@@ -317,12 +314,14 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
     var leftMargin = indentLevel * this._tabSize;
     var paramNameWidth = 8; // length of 'wanted: '
     var singleLineWidth = this._minResultsMargin - leftMargin - paramNameWidth;
+    var extraFoundSpaces = (found.quoted ? 0 : 1);
+    var extraWantedSpaces = (wanted.quoted ? 0 : 1);
             
     if (this._interleaveDiffs)
         this._printInterleavedDiffs(indentLevel, found, wanted, leftMargin);
-    else if (found.val.length < singleLineWidth && // room for prefixed space
-            found.val.indexOf("\n") === -1 && 
-            wanted.val.length < singleLineWidth &&
+    else if (found.val.length + extraFoundSpaces <= singleLineWidth &&
+            found.val.indexOf("\n") === -1 &&
+            wanted.val.length + extraWantedSpaces <= singleLineWidth &&
             wanted.val.indexOf("\n") === -1)
     {
         this._printSingleLineDiffs(indentLevel, found, wanted, singleLineWidth);
@@ -372,12 +371,13 @@ BaseReport.prototype._printMultiLineDiffs = function (
     if (lineWidth < this._minResultsWidth)
         lineWidth = this._minResultsWidth;
 
-    var foundHighlight = this._maker.colorWrap('found', found.val, lineWidth);
+    var foundHighlight =
+            this._maker.colorWrap('found', found.val, 0, lineWidth);
     this._maker.line(indentLevel, 'found: |');
     this._maker.multiline(indentLevel + 1, foundHighlight);
     
     var wantedHighlight =
-            this._maker.colorWrap('wanted', wanted.val, lineWidth);
+            this._maker.colorWrap('wanted', wanted.val, 0, lineWidth);
     this._maker.line(indentLevel, 'wanted: |');
     this._maker.multiline(indentLevel + 1, wantedHighlight);
 };
@@ -387,12 +387,16 @@ BaseReport.prototype._printSingleLineDiffs = function (
 {
     if (this._styleMode > LineMaker.STYLE_MONOCHROME) {
         // make it easier to read short values shown on a background color
-        found.val = ' '+ found.val;
-        if (found.val.length < lineWidth)
-            found.val += this._color('found', ' '); // assume \x1b in found
-        wanted.val = ' '+ wanted.val;
-        if (wanted.val.length < lineWidth)
-            wanted.val += this._color('wanted', ' '); // assume \x1b in wanted
+        if (!found.quoted) { // quotes already space value from background
+            found.val = ' '+ found.val;
+            if (found.val.length < lineWidth)
+                found.val += this._color('found', ' '); // assume \x1b in val
+        }
+        if (!wanted.quoted) { // quotes already space value from background
+            wanted.val = ' '+ wanted.val;
+            if (wanted.val.length < lineWidth)
+                wanted.val += this._color('wanted', ' '); // assume \x1b in val
+        }
     }
     var foundHighlight = this._color('found', found.val);
     this._maker.line(indentLevel, 'found:  '+ foundHighlight);
