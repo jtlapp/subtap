@@ -173,7 +173,7 @@ catch(err) {
 //// STATE ////////////////////////////////////////////////////////////////////
 
 var filePaths = []; // array of all test files to run
-var fileIndex = 0; // index of the next test file to run
+var fileIndex = 0; // index of currently running test file
 var testNumber = 0; // number of most-recently output root subtest
 var failedTests = 0; // number of tests that have failed
 var bailed = false; // whether test file bailed out
@@ -284,7 +284,7 @@ function runNextFile() {
                     failedTests: failedTests,
                     maxFailedTests: maxFailedTests,
                     embedExceptions: basicOptions.embedExceptions,
-                    filePath: filePaths[fileIndex++]
+                    filePath: filePaths[fileIndex]
                 });
                 break;
             case 'chunk':
@@ -314,9 +314,9 @@ function runNextFile() {
     
     child.on('exit', function (exitCode) {
         // exitCode == 1 if any test fails, so can't bail run
-        clearTimeout(timer);
+        clearTimeout(timer); // child may exit without messaging parent
         if (!bailed) {
-            if (fileIndex < filePaths.length)
+            if (++fileIndex < filePaths.length)
                 return runNextFile();
             if (testNumber === 0)
                 exitWithUserError("no subtests found");
@@ -335,7 +335,7 @@ function awaitHeartbeat(child) {
     timer = setTimeout(function() {
         if (!gotPulse) {
             child.kill('SIGKILL');
-            var filePath = filePaths[fileIndex - 1];
+            var filePath = filePaths[fileIndex];
             if (filePath.indexOf(cwd) === 0)
                 filePath = filePath.substr(cwd.length + 1);
             writeErrorMessage(filePath +" timed out after "+
