@@ -4,7 +4,7 @@ FullReport outputs the name of each test and the pass/fail status of each assert
 
 var util = require('util');
 var BaseReport = require('./BaseReport');
-var stack = require('../lib/stack');
+var callstack = require('../lib/callstack');
 
 function FullReport(outputStream, options) {
     BaseReport.call(this, outputStream, options);
@@ -18,7 +18,7 @@ FullReport.prototype.beginTest = function (subtestStack, testInfo) {
 };
 
 FullReport.prototype.assertionFailed = function (subtestStack, assert) {
-    stack.truncateAssertStacks(assert, this._truncateStackAtPath);
+    callstack.truncateAssertStacks(assert, this._truncateTraceAtPath);
     this._printFailedAssertion(subtestStack, 'fail', assert);
 };
 

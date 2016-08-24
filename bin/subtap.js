@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 
-// TBD: on strictSame fail, need to load source line on my own from proper file
-
 //// MODULES //////////////////////////////////////////////////////////////////
 
-var fs = require('fs');
 var Writable = require('stream').Writable;
 var resolveModule = require('resolve');
 var path = require('path');
@@ -14,6 +11,7 @@ var fork = require('child_process').fork;
 var _ = require('lodash');
 
 var subtap = require("../");
+var callstack = require("../lib/callstack");
 
 //// CONSTANTS ////////////////////////////////////////////////////////////////
 
@@ -87,7 +85,7 @@ var printerMakerMap = {
     },
     json: function() {
         return new subtap.JsonPrinter(process.stdout, {
-            truncateStackAtPath: childPath
+            truncateTraceAtPath: childPath
         });
     },
     tally: function() {
@@ -210,20 +208,14 @@ runNextFile(); // run first file; each subsequent file runs after prev closes
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
 function exitWithTestError(stack) {
-    var matches = stack.match(/ \(([^):]+)(:(\d+):(\d+))?/);
+    var callInfo = callstack.getDeepestCallInfo(stack, false);
     process.stderr.write("\n");
-    if (!_.isUndefined(matches[2])) {
-        try {
-            var fileText = fs.readFileSync(matches[1], 'utf8');
-            var lines = fileText.split("\n");
-            process.stderr.write(matches[1] + matches[2] +"\n");
-            process.stderr.write(lines[parseInt(matches[3]) - 1] +"\n");
-            process.stderr.write(' '.repeat(parseInt(matches[4] - 1)));
-            process.stderr.write("^\n");
-        }
-        catch (err) {
-            // if can't read the file, just show the exception (stack)
-        }
+    if (callInfo !== null) {
+        process.stderr.write(callInfo.file +":"+
+                callInfo.line +":"+ callInfo.column +"\n");
+        process.stderr.write(callInfo.source +"\n");
+        process.stderr.write(' '.repeat(callInfo.column - 1));
+        process.stderr.write("^\n");
     }
     process.stderr.write(stack +"\n\n");
     process.exit(1);
@@ -268,7 +260,7 @@ function makePrettyPrinter(reportClass) {
         styleMode: colorMode,
         minResultsWidth: stringOptions.minResultsWidth || MIN_RESULTS_WIDTH,
         minResultsMargin: stringOptions.minResultsMargin || MIN_RESULTS_MARGIN,
-        truncateStackAtPath: childPath,
+        truncateTraceAtPath: childPath,
         showFunctionSource: basicOptions.showFunctionSource,
         colorDiffText: stringOptions.colorDiffText || true,
         underlineFirstDiff: stringOptions.underlineFirstDiff || true,

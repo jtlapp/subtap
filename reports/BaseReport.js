@@ -10,7 +10,7 @@ var xregexp = require('xregexp');
 var _ = require('lodash');
 
 var LineMaker = require('../lib/LineMaker');
-var stack = require('../lib/stack');
+var callstack = require('../lib/callstack');
 
 //// PRIVATE CONSTANTS ////////////////////////////////////////////////////////
 
@@ -65,7 +65,7 @@ var COLORMAP_256 = {
  * @param outputStream Stream to which to write output (a node Writable)
  * @param options
  *   - tabSize: width of each indentation level in spaces
- *   - truncateStackAtPath: Path of file in call stack at which to abbreviate stack to just this path (defaults to null for no truncation)
+ *   - truncateTraceAtPath: Path of file in call stack at which to abbreviate stack to just this path (defaults to null for no truncation)
  *   - styleMode: degree to which to allow ANSI escape sequences. see the LineMaker.STYLE_ constants.
  *   - minResultsWidth: min width at which to wrap failure results area
  *   - minResultsMargin: min right-margin wrap column for failure results
@@ -84,7 +84,7 @@ function BaseReport(outputStream, options) {
     this._tabSize = options.tabSize || 2;
     this._minResultsWidth = options.minResultsWidth || 20;
     this._minResultsMargin = options.minResultsMargin || 80;
-    this._truncateStackAtPath = options.truncateStackAtPath || null;
+    this._truncateTraceAtPath = options.truncateTraceAtPath || null;
     this._showFunctionSource = options.showFunctionSource || false;
     this._colorDiffText = options.colorDiffText || true,
     this._underlineFirstDiff = options.underlineFirstDiff || true,
@@ -156,8 +156,8 @@ BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
     }
     this._printTestContext(subtestStack);
     var self = this;
-    if (this._truncateStackAtPath)
-        stack.truncateAssertStacks(assert, this._truncateStackAtPath);
+    if (this._truncateTraceAtPath)
+        callstack.truncateAssertStacks(assert, this._truncateTraceAtPath);
     if (subtestStack.length === 0)
         this._printFailedAssertion(subtestStack, 'fail-emph', assert);
     else
