@@ -42,8 +42,8 @@ var COLORMAP_256 = {
 
 // _tabSize - width of each indentation level in spaces
 // _styleMode = degree to which to allow ANSI escape sequences
-// _minHighlightWidth - min width of highlighted multiline results
-// _highlightMargin - min index of right margin of highlighted multiline results
+// _minResultsWidth - min width at which to wrap failure results area
+// _minResultsMargin - min right-margin wrap column for failure results
 // _showFunctionSource - whether to output entire source of functions
 // _maker - instance of LineMaker used for formatting output
 // _indent - string of spaces by which to indent each JSON nesting
@@ -64,8 +64,8 @@ var COLORMAP_256 = {
  *   - tabSize: width of each indentation level in spaces
  *   - truncateStackAtPath: Path of file in call stack at which to abbreviate stack to just this path (defaults to null for no truncation)
  *   - styleMode: degree to which to allow ANSI escape sequences. see the LineMaker.STYLE_ constants.
- *   - minHighlightWidth: min width of highlighted multiline results
- *   - highlightMargin: min index of right margin for highlighted multiline results
+ *   - minResultsWidth: min width at which to wrap failure results area
+ *   - minResultsMargin: min right-margin wrap column for failure results
  *   - showFunctionSource: whether to output entire source of functions found in result differences (defaults to false)
  *   - canonical: whether to visibly render control codes in output (defaults to false)
  *   - closeStream: whether to call end() on the output stream (defaults to false, which is usual for stdout)
@@ -76,8 +76,8 @@ function BaseReport(outputStream, options) {
     options = options || {};
     this._styleMode = options.styleMode || LineMaker.STYLE_ALL;
     this._tabSize = options.tabSize || 2;
-    this._minHighlightWidth = options.minHighlightWidth || 40;
-    this._highlightMargin = options.highlightMargin || 80;
+    this._minResultsWidth = options.minResultsWidth || 20;
+    this._minResultsMargin = options.minResultsMargin || 80;
     this._truncateStackAtPath = options.truncateStackAtPath || null;
     this._showFunctionSource = options.showFunctionSource || false;
     this._closeStream = options.closeStream || false;
@@ -310,7 +310,7 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
     var paramNameWidth = 8; // length of 'wanted: '
 
     var singleLineWidth =
-            this._highlightMargin - leftParamMargin - paramNameWidth;
+            this._minResultsMargin - leftParamMargin - paramNameWidth;
     if (found.val.length < singleLineWidth && // leave room for initial space
             found.val.indexOf("\n") === -1 && 
             wanted.val.length < singleLineWidth &&
@@ -350,9 +350,9 @@ BaseReport.prototype._printMultiLineDiffs = function (
         indentLevel, found, wanted, leftParamMargin)
 {
     var leftValueMargin = leftParamMargin + this._tabSize;
-    var multilineWidth = this._highlightMargin - leftValueMargin;
-    if (multilineWidth < this._minHighlightWidth)
-        multilineWidth = this._minHighlightWidth;
+    var multilineWidth = this._minResultsMargin - leftValueMargin;
+    if (multilineWidth < this._minResultsWidth)
+        multilineWidth = this._minResultsWidth;
 
     var foundHighlight =
             this._maker.colorWrap('found', found.val, multilineWidth);

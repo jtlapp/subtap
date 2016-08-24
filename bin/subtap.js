@@ -18,14 +18,15 @@ var subtap = require("../");
 //// CONSTANTS ////////////////////////////////////////////////////////////////
 
 var TAB_SIZE = 2; // default spaces by which to indent each level of nesting
-var DIFF_HIGHLIGHT_MARGIN = 80; // right margin of multiline highlights
-var MIN_DIFF_HIGHLIGHT_WIDTH = 30; // min. width of multiline highlights
+var MIN_RESULTS_WIDTH = 30; // min width at which to wrap failure results area
+var MIN_RESULTS_MARGIN = 80; // min right-margin wrap column for failure results
 
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
 var argv = process.argv.slice(2);
 var dashDashOptions = extractDashDashOptions(argv);
-var options = minimist(argv, {
+var stringOptions = extractStringOptions(argv, ['w']);
+var basicOptions = minimist(argv, {
     alias: {
         b: 'bailOnFail',
         c: 'colorMode',
@@ -33,30 +34,28 @@ var options = minimist(argv, {
         f: 'showFunctionSource',
         h: 'help',
         i: 'tabSize',
-        n: 'selectedTest',
-        w: 'wrapColumn'
+        n: 'selectedTest'
     },
-    boolean: [ 'b', 'c', 'e', 'f', 'h', 'i', 'n', 'w' ],
+    boolean: [ 'b', 'c', 'e', 'f', 'h', 'i', 'n'],
 });
 
-if (options.help) {
+if (basicOptions.help) {
     console.log(
         "subtap [options] [file-patterns]\n"+ // TBD: say more
         "(only works with JS files that require 'tap')\n"+
         "\n"+
         "options:\n"+
-        "  -b  : bail on first assertion to fail\n"+
-        "  -bN : bail after the N root subtests fail\n"+
-        "  -c0 : no color, emphasis, or other ANSI codes\n"+
-        "  -c1 : monochrome mode, emphasis allowed\n"+
-        "  -c2 : multicolor mode (default)\n"+
-        "  -e  : catch and embed subtest exceptions in output\n"+
-        "  -f  : output entire source of functions found in diffs\n"+
-        "  -h  : show this help information\n"+
-        "  -iN : indent each level of nesting by N spaces (default 2)\n"+
-        "  -nN : run only test number N\n"+
-        //"  -mN : min width of failure results output area (default ?)\n"+
-        //"  -wN : wrap failure results output at Nth column (default 80)\n"+
+        "  -b     : bail on first assertion to fail\n"+
+        "  -bN    : bail after the N root subtests fail\n"+
+        "  -c0    : no color, emphasis, or other ANSI codes\n"+
+        "  -c1    : monochrome mode, emphasis allowed\n"+
+        "  -c2    : multicolor mode (default)\n"+
+        "  -e     : catch and embed subtest exceptions in output\n"+
+        "  -f     : output entire source of functions found in diffs\n"+
+        "  -h     : show this help information\n"+
+        "  -iN    : indent each level of nesting by N spaces (default 2)\n"+
+        "  -nN    : run only test number N\n"+
+        "  -wM:N  : results area min width (M), min wrap column (N) (default 20:80)\n"+ 
         "  --fail : restrict output to tests + assertions that fail\n"+
         "  --all  : output results of all tests and assertions\n"+
         "  --json : output TAP events in JSON\n"+
@@ -67,7 +66,7 @@ if (options.help) {
 }
 
 var childPath = path.resolve(__dirname, "_runfile.js");
-var childEnv = (options.bailOnFail ? { TAP_BAIL: '1' } : {});
+var childEnv = (basicOptions.bailOnFail ? { TAP_BAIL: '1' } : {});
 
 var printerMakerMap = {
     all: function() {
@@ -103,7 +102,7 @@ var makePrinter = printerMakerMap[outputFormat];
 if (!makePrinter)
     exitWithUserError("unrecognized output format '"+ outputFormat +"'");
     
-var colorMode = options.colorMode;
+var colorMode = basicOptions.colorMode;
 if (colorMode === true)
     exitWithUserError("-cN option requires a color mode number (e.g. -c1)");
 if (colorMode === false)
@@ -118,19 +117,29 @@ if (colorMode >= 10) {
     colorMode -= 10;
 }
 
-var selectedTest = options.selectedTest;
+var selectedTest = basicOptions.selectedTest;
 if (selectedTest === 0 || selectedTest === true)
     exitWithUserError("-n option requires a non-zero test number (e.g. -n42)");
 
 var maxFailedTests = 0; // assume no maximum
-if (_.isNumber(options.bailOnFail)) {
-    maxFailedTests = options.bailOnFail;
-    options.bailOnFail = false;
+if (_.isNumber(basicOptions.bailOnFail)) {
+    maxFailedTests = basicOptions.bailOnFail;
+    basicOptions.bailOnFail = false;
 }
-if (options.tabSize === true || options.tabSize === 0)
+if (basicOptions.tabSize === true || basicOptions.tabSize === 0)
     exitWithUserError("-iN option requires a tab size N >= 1");
-//if (options.wrapColumn === true || options.wrapColumn < 20 /*broken*/)
-//    exitWithUserError("-wN option requires a wrap column N >= 20");
+    
+if (!_.isUndefined(stringOptions.w)) {
+    var matches = stringOptions.w.match(/^(\d+):(\d+)$/);
+    if (!matches)
+        exitWithUserError("-wM:N option requires two colon-separated integers");
+    else {
+        stringOptions.minResultsWidth = matches[1];
+        stringOptions.minResultsMargin = matches[2];
+        if (stringOptions.minResultsWidth < 2)
+            exitWithUserError("-wM:N potion requires M >= 2");
+    }
+}
     
 var cwd = process.cwd();
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
@@ -160,14 +169,14 @@ var skippingChunks = false; // whether skipping TAP output
 
 // If no files are specified, assume all .js in ./test and ./tests.
 
-if (options._.length === 0) {
-    options._.push("test/*.js");
-    options._.push("tests/*.js");
+if (basicOptions._.length === 0) {
+    basicOptions._.push("test/*.js");
+    basicOptions._.push("tests/*.js");
 }
 
 // Run the test files strictly sequentially so that, for a given set of test files, root subtests have consistent numbers from run-to-run.
 
-options._.forEach(function (pattern) {
+basicOptions._.forEach(function (pattern) {
     glob.sync(pattern, {
         nodir: true
     }).forEach(function (file) {
@@ -221,14 +230,28 @@ function extractDashDashOptions(argv) {
     return dashDashTerms;
 }
 
+function extractStringOptions(argv, optionLetters) {
+    var stringOptions = {};
+    var i = argv.length;
+    while (--i >= 0) {
+        optionLetters.forEach(function(letter) {
+            if (argv[i].startsWith('-'+ letter)) {
+                stringOptions[letter] = argv[i].substr(2);
+                argv.splice(i, 1);
+            }
+        });
+    }
+    return stringOptions;
+}
+
 function makePrettyPrinter(reportClass) {
     return new subtap.PrettyPrinter(new reportClass(process.stdout, {
-        tabSize: options.tabSize || TAB_SIZE,
+        tabSize: basicOptions.tabSize || TAB_SIZE,
         styleMode: colorMode,
-        highlightMargin: DIFF_HIGHLIGHT_MARGIN,
-        minHighlightWidth: MIN_DIFF_HIGHLIGHT_WIDTH,
+        minResultsWidth: stringOptions.minResultsWidth || MIN_RESULTS_WIDTH,
+        minResultsMargin: stringOptions.minResultsMargin || MIN_RESULTS_MARGIN,
         truncateStackAtPath: childPath,
-        showFunctionSource: options.showFunctionSource,
+        showFunctionSource: basicOptions.showFunctionSource,
         canonical: canonical
     }));
 }
@@ -246,7 +269,7 @@ function runNextFile() {
                     selectedTest: selectedTest,
                     failedTests: failedTests,
                     maxFailedTests: maxFailedTests,
-                    embedExceptions: options.embedExceptions,
+                    embedExceptions: basicOptions.embedExceptions,
                     filePath: filePaths[fileIndex++]
                 });
                 break;
