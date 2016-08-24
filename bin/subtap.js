@@ -289,10 +289,8 @@ function runNextFile() {
                 break;
             case 'chunk':
                 var text = msg.text;
-                if (/^bail out!/i.test(text)) {
-                    clearTimeout(timer);
+                if (/^bail out!/i.test(text))
                     bailed = true;
-                }
                 else if (/^\d+\.\.\d+/.test(text))
                     skippingChunks = true;
                 if (!skippingChunks)
@@ -316,6 +314,7 @@ function runNextFile() {
     
     child.on('exit', function (exitCode) {
         // exitCode == 1 if any test fails, so can't bail run
+        clearTimeout(timer);
         if (!bailed) {
             if (fileIndex < filePaths.length)
                 return runNextFile();
