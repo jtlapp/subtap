@@ -214,7 +214,7 @@ function exitWithTestError(stack) {
 function exitWithUserError(message) {
     if (outputFormat !== 'tap' && printer)
         printer.abort();
-    console.log("*** %s ***\n", message);
+    process.stderr.write("*** "+ message +" ***\n\n");
     process.exit(1);
 }
 
