@@ -45,6 +45,9 @@ var COLORMAP_256 = {
 // _minResultsWidth - min width at which to wrap failure results area
 // _minResultsMargin - min right-margin wrap column for failure results
 // _showFunctionSource - whether to output entire source of functions
+// _colorDiffText - whether to color the found/wanted text that differs
+// _underlineFirstDiff - whether to underline the first character that differs between found and wanted text
+// _interleaveDiffs - whether to interleave differing found/wanted lines
 // _maker - instance of LineMaker used for formatting output
 // _indent - string of spaces by which to indent each JSON nesting
 // _outputStream - stream to which to write output (a node Writable)
@@ -67,6 +70,9 @@ var COLORMAP_256 = {
  *   - minResultsWidth: min width at which to wrap failure results area
  *   - minResultsMargin: min right-margin wrap column for failure results
  *   - showFunctionSource: whether to output entire source of functions found in result differences (defaults to false)
+ *   - colorDiffText: whether to color the found/wanted text that differs
+ *   - underlineFirstDiff: whether to underline the first character that differs between found and wanted text
+ *   - interleaveDiffs: whether to interleave differing found/wanted lines
  *   - canonical: whether to visibly render control codes in output (defaults to false)
  *   - closeStream: whether to call end() on the output stream (defaults to false, which is usual for stdout)
 */
@@ -80,6 +86,9 @@ function BaseReport(outputStream, options) {
     this._minResultsMargin = options.minResultsMargin || 80;
     this._truncateStackAtPath = options.truncateStackAtPath || null;
     this._showFunctionSource = options.showFunctionSource || false;
+    this._colorDiffText = options.colorDiffText || true,
+    this._underlineFirstDiff = options.underlineFirstDiff || true,
+    this._interleaveDiffs = options.interleaveDiffs || false,
     this._closeStream = options.closeStream || false;
     
     var self = this;
@@ -104,9 +113,15 @@ module.exports = BaseReport;
 
 //// PUBLIC CONSTANTS /////////////////////////////////////////////////////////
 
-BaseReport.BULLET_PENDING = '-';
-BaseReport.BULLET_FAIL = '⨯';
-BaseReport.BULLET_PASS = '✓';
+BaseReport.SYMBOL_PENDING = '-';
+BaseReport.SYMBOL_PASS = '✓';
+BaseReport.SYMBOL_FAIL = '✗';
+
+BaseReport.SYMNOL_GOOD_LINE = '→';
+BaseReport.SYMNOL_BAD_LINE = '✗';
+
+BaseReport.SYMBOL_NEWLINE = "⏎";
+BaseReport.NEWLINE_SUB = BaseReport.SYMBOL_NEWLINE +"\n";
 
 //// PUBLIC METHODS ///////////////////////////////////////////////////////////
 
@@ -130,7 +145,7 @@ BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
         if (!this._rootSubtestFailed) {
             this._printUpLine();
             var testInfo = subtestStack[0];
-            var text = this._color('fail', this._bold(BaseReport.BULLET_FAIL));
+            var text = this._color('fail', this._bold(BaseReport.SYMBOL_FAIL));
             text += ' '+ this._color('fail-emph', this._bold(testInfo.name));
             if (testInfo.file)
                 text += this._color('fail-emph', testInfo.file);
@@ -150,7 +165,7 @@ BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
 };
 
 BaseReport.prototype.assertionPassed = function (subtestStack, assert) {
-    var text = BaseReport.BULLET_PASS +" "+ this._makeAssertion(assert);
+    var text = BaseReport.SYMBOL_PASS +" "+ this._makeAssertion(assert);
     this._maker.tempLine(subtestStack.length, text);
 };
 
@@ -175,7 +190,7 @@ BaseReport.prototype.bailout = function (subtestStack, reason, counts) {
         if (/Aborted after \d+ failed/i.test(reason))
             level = 1; // only aborts for failure count of root subtests
         this._maker.line(level, this._bold(this._color('fail',
-                BaseReport.BULLET_FAIL +" BAIL OUT! "+ reason)));
+                BaseReport.SYMBOL_FAIL +" BAIL OUT! "+ reason)));
         this._bailed = true;
     }
 };
@@ -217,13 +232,12 @@ BaseReport.prototype._failedClosing = function (counts) {
     this._maker.blankLine();
 };
 
-BaseReport.prototype._isAmbiguousString = function (typedValue) {
-    return (typedValue.type === 'string' && (
-            typedValue.val === 'undefined' || typedValue.val === 'null' ||
-            typedValue.val === 'true' || typedValue.val === 'false' ||
-            !_.isNaN(_.toNumber(typedValue.val)) ||
-            !_.isNaN(_.toNumber(typedValue.val.replace('O', '0')))
-        ));
+BaseReport.prototype._isAmbiguousString = function (str) {
+    return (str === 'undefined' || str === 'null' ||
+            str === 'true' || str === 'false' ||
+            !_.isNaN(_.toNumber(str)) ||
+            !_.isNaN(_.toNumber(str.replace('O', '0')))
+        );
 };
 
 BaseReport.prototype._makeAssertion = function (assert) {
@@ -244,42 +258,40 @@ BaseReport.prototype._makeName = function (bullet, testInfo, color) {
     return text;
 };
 
-BaseReport.prototype._normalizeTypedValues = function (found, wanted) {
+BaseReport.prototype._normalizeValue = function (value, mustQuote) {
+    var type = typeof value;
+    var quoted = false;
 
     // identify serialized functions and (by default) remove all but signature
     
-    function normalizeFunction(self, typedValue) {
-        var newVal = self._truncateFunction(null, typedValue.val);
-        if (newVal !== typedValue.val) {
-            typedValue.type = 'function';
-            typedValue.val = newVal;
+    var newVal = this._truncateFunction(null, value);
+    if (newVal !== value)
+        type = 'function';
+    value = newVal;
+    
+    // quote string values that might not be interpreted as strings, and
+    // make all newlines visible.
+    
+    if (type === 'string') {
+        if (mustQuote || this._isAmbiguousString(value)) {
+            value = "'"+ value +"'"; // this value won't contain '
+            quoted = true;
         }
+        value = value.replace("\n", BaseReport.NEWLINE_SUB);
     }
-    normalizeFunction(this, found);
-    normalizeFunction(this, wanted);
-    
-    // if either is an ambiguous string, put it in quotes to clarify that it
-    // is a string, and quote the other too for easier visual comparison
-    
-    var shouldQuote = this._isAmbiguousString(found) ||
-            this._isAmbiguousString(wanted);
-    if (shouldQuote && found.type === 'string')
-        found.val = "'"+ found.val +"'"; // won't contain '
-    if (shouldQuote && wanted.type === 'string')
-        wanted.val = "'"+ wanted.val +"'"; // won't contain '
         
     // represent values as strings, truncating functions within JSON
 
-    function makeString(self, typedValue) {
-        if (typedValue.type === 'object') {
-            typedValue.val = JSON.stringify(typedValue.val,
-                    self._truncateFunction, self._indent);
-        }
-        else
-            typedValue.val = String(typedValue.val); // okay if val a string
-    }
-    makeString(this, found);
-    makeString(this, wanted);
+    if (type === 'object')
+        value = JSON.stringify(value, this._truncateFunction, this._indent);
+    else
+        value = String(value); // okay even if value is a string
+        
+    return {
+        type: type, // JS type that the value represents
+        val: value, // a string representation of the value
+        quoted: quoted // whether quotes where added to a string value
+    };
 };
 
 BaseReport.prototype._passedClosing = function (counts) {
@@ -296,22 +308,19 @@ BaseReport.prototype._passedClosing = function (counts) {
 BaseReport.prototype._printDiffs = function (indentLevel, assert) {
 
     // normalize found and wanted values to strings
-
-    function makeTypedValue(value) {
-        return { type: typeof value, val: value };
-    }
-    var found = makeTypedValue(assert.diag.found);
-    var wanted = makeTypedValue(assert.diag.wanted);
-    this._normalizeTypedValues(found, wanted);
+    
+    var found = this._normalizeValue(assert.diag.found, false);
+    var wanted = this._normalizeValue(assert.diag.wanted, found.quoted);
 
     // output the value differences in the appropriate display format
 
-    var leftParamMargin = indentLevel * this._tabSize;
+    var leftMargin = indentLevel * this._tabSize;
     var paramNameWidth = 8; // length of 'wanted: '
-
-    var singleLineWidth =
-            this._minResultsMargin - leftParamMargin - paramNameWidth;
-    if (found.val.length < singleLineWidth && // leave room for initial space
+    var singleLineWidth = this._minResultsMargin - leftMargin - paramNameWidth;
+            
+    if (this._interleaveDiffs)
+        this._printInterleavedDiffs(indentLevel, found, wanted, leftMargin);
+    else if (found.val.length < singleLineWidth && // room for prefixed space
             found.val.indexOf("\n") === -1 && 
             wanted.val.length < singleLineWidth &&
             wanted.val.indexOf("\n") === -1)
@@ -319,7 +328,9 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
         this._printSingleLineDiffs(indentLevel, found, wanted, singleLineWidth);
     }
     else
-        this._printMultiLineDiffs(indentLevel, found, wanted, leftParamMargin);
+        this._printMultiLineDiffs(indentLevel, found, wanted, leftMargin);
+        
+    // delete values from diagnostics so they aren't printed in the YAML
     
     delete(assert.diag['found']);
     delete(assert.diag['wanted']);
@@ -333,7 +344,7 @@ BaseReport.prototype._printFailedAssertion = function (
     if (assert.time)
         line += " # time="+ assert.time +"ms";
     line = this._bold(this._color(styleID, line));
-    line = this._bold(this._color('fail', BaseReport.BULLET_FAIL +" ")) + line;
+    line = this._bold(this._color('fail', BaseReport.SYMBOL_FAIL +" ")) + line;
     this._maker.line(indentLevel, line);
 
     if (!_.isUndefined(assert.diag)) { // exceptions may not yield a diag
@@ -346,21 +357,27 @@ BaseReport.prototype._printFailedAssertion = function (
     }
 };
 
+BaseReport.prototype._printInterleavedDiffs = function(
+    indentLevel, found, wanted, leftMargin)
+{
+    // TBD
+    console.log("*** interleaving not yet implemented ***");
+};
+
 BaseReport.prototype._printMultiLineDiffs = function (
         indentLevel, found, wanted, leftParamMargin)
 {
     var leftValueMargin = leftParamMargin + this._tabSize;
-    var multilineWidth = this._minResultsMargin - leftValueMargin;
-    if (multilineWidth < this._minResultsWidth)
-        multilineWidth = this._minResultsWidth;
+    var lineWidth = this._minResultsMargin - leftValueMargin;
+    if (lineWidth < this._minResultsWidth)
+        lineWidth = this._minResultsWidth;
 
-    var foundHighlight =
-            this._maker.colorWrap('found', found.val, multilineWidth);
+    var foundHighlight = this._maker.colorWrap('found', found.val, lineWidth);
     this._maker.line(indentLevel, 'found: |');
     this._maker.multiline(indentLevel + 1, foundHighlight);
     
     var wantedHighlight =
-            this._maker.colorWrap('wanted', wanted.val, multilineWidth);
+            this._maker.colorWrap('wanted', wanted.val, lineWidth);
     this._maker.line(indentLevel, 'wanted: |');
     this._maker.multiline(indentLevel + 1, wantedHighlight);
 };
@@ -369,6 +386,7 @@ BaseReport.prototype._printSingleLineDiffs = function (
         indentLevel, found, wanted, lineWidth)
 {
     if (this._styleMode > LineMaker.STYLE_MONOCHROME) {
+        // make it easier to read short values shown on a background color
         found.val = ' '+ found.val;
         if (found.val.length < lineWidth)
             found.val += this._color('found', ' '); // assume \x1b in found
@@ -386,7 +404,7 @@ BaseReport.prototype._printTestContext = function (subtestStack) {
     while (this._depthShown < subtestStack.length) {
         var testInfo = subtestStack[this._depthShown];
         var formattedName =
-                this._makeName(BaseReport.BULLET_PENDING, testInfo);
+                this._makeName(BaseReport.SYMBOL_PENDING, testInfo);
         this._maker.line(this._depthShown, formattedName);
         ++this._depthShown;
     }

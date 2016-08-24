@@ -19,7 +19,7 @@ RootSubtestReport.prototype.beginTest = function (subtestStack, testInfo) {
         this._printTestContext(subtestStack);
     else {
         this._maker.tempLine(subtestStack.length - 1,
-                this._makeName(BaseReport.BULLET_PENDING, testInfo));
+                this._makeName(BaseReport.SYMBOL_PENDING, testInfo));
     }
 };
 
@@ -28,7 +28,7 @@ RootSubtestReport.prototype.closeTest = function (subtestStack, results) {
     if (subtestStack.length === 1 && !this._rootSubtestFailed) {
         this._printUpLine();
         var line =
-            this._makeName(BaseReport.BULLET_PASS, subtestStack[0], 'pass');
+            this._makeName(BaseReport.SYMBOL_PASS, subtestStack[0], 'pass');
         this._maker.line(0, line);
     }
 };

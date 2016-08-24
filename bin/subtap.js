@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// TBD: add timeout for _runfile ready or done events
+// TBD: on strictSame fail, need to load source line on my own from proper file
 
 //// MODULES //////////////////////////////////////////////////////////////////
 
@@ -20,12 +20,13 @@ var subtap = require("../");
 var TAB_SIZE = 2; // default spaces by which to indent each level of nesting
 var MIN_RESULTS_WIDTH = 30; // min width at which to wrap failure results area
 var MIN_RESULTS_MARGIN = 80; // min right-margin wrap column for failure results
+var DEFAULT_TIMEOUT_MILLIS = 3000; // default timeout period for inactivity
 
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
 var argv = process.argv.slice(2);
 var dashDashOptions = extractDashDashOptions(argv);
-var stringOptions = extractStringOptions(argv, ['w']);
+var stringOptions = extractStringOptions(argv, ['d', 'w']);
 var basicOptions = minimist(argv, {
     alias: {
         b: 'bailOnFail',
@@ -34,9 +35,13 @@ var basicOptions = minimist(argv, {
         f: 'showFunctionSource',
         h: 'help',
         i: 'tabSize',
-        n: 'selectedTest'
+        n: 'selectedTest',
+        t: 'timeoutMillis'
     },
     boolean: [ 'b', 'c', 'e', 'f', 'h', 'i', 'n'],
+    default: {
+        t: DEFAULT_TIMEOUT_MILLIS
+    }
 });
 
 if (basicOptions.help) {
@@ -50,11 +55,16 @@ if (basicOptions.help) {
         "  -c0    : no color, emphasis, or other ANSI codes\n"+
         "  -c1    : monochrome mode, emphasis allowed\n"+
         "  -c2    : multicolor mode (default)\n"+
+        "  -dCIU  : found/wanted diff flags (default CU)\n"+
+        "           - (C) color diff text\n"+
+        "           - (I) interleave diff lines\n"+
+        "           - (U) underline 1st diff\n"+
         "  -e     : catch and embed subtest exceptions in output\n"+
-        "  -f     : output entire source of functions found in diffs\n"+
+        "  -f     : output source code of functions in found/wanted values\n"+
         "  -h     : show this help information\n"+
         "  -iN    : indent each level of nesting by N spaces (default 2)\n"+
         "  -nN    : run only test number N\n"+
+        "  -tN    : timeout for inactivity after N millisecs; 0 = off (default 3000)\n"+
         "  -wM:N  : results area min width (M), min wrap column (N) (default 20:80)\n"+ 
         "  --fail : restrict output to tests + assertions that fail\n"+
         "  --all  : output results of all tests and assertions\n"+
@@ -140,6 +150,12 @@ if (!_.isUndefined(stringOptions.w)) {
             exitWithUserError("-wM:N potion requires M >= 2");
     }
 }
+
+if (!_.isUndefined(stringOptions.w)) {
+    stringOptions.colorDiffText = (stringOptions.w.indexOf('C') >= 0);
+    stringOptions.underlineFirstDiff = (stringOptions.w.indexOf('U') >= 0);
+    stringOptions.interleaveDiffs = (stringOptions.w.indexOf('I') >= 0);
+}
     
 var cwd = process.cwd();
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
@@ -164,6 +180,8 @@ var testNumber = 0; // number of most-recently output root subtest
 var failedTests = 0; // number of tests that have failed
 var bailed = false; // whether test file bailed out
 var skippingChunks = false; // whether skipping TAP output
+var gotPulse; // whether child process was recently active
+var timer; // heartbeat timer monitoring child activity
 
 //// RUN TESTS ////////////////////////////////////////////////////////////////
 
@@ -214,7 +232,7 @@ function exitWithTestError(stack) {
 function exitWithUserError(message) {
     if (outputFormat !== 'tap' && printer)
         printer.abort();
-    process.stderr.write("*** "+ message +" ***\n\n");
+    writeErrorMessage(message);
     process.exit(1);
 }
 
@@ -252,6 +270,9 @@ function makePrettyPrinter(reportClass) {
         minResultsMargin: stringOptions.minResultsMargin || MIN_RESULTS_MARGIN,
         truncateStackAtPath: childPath,
         showFunctionSource: basicOptions.showFunctionSource,
+        colorDiffText: stringOptions.colorDiffText || true,
+        underlineFirstDiff: stringOptions.underlineFirstDiff || true,
+        interleaveDiffs: stringOptions.interleaveDiffs || false,
         canonical: canonical
     }));
 }
@@ -261,6 +282,7 @@ function runNextFile() {
     var child = fork(childPath, [tapPath], {env: childEnv});
     
     child.on('message', function (msg) {
+        gotPulse = true;
         switch (msg.event) {
             case 'ready':
                 child.send({
@@ -285,10 +307,12 @@ function runNextFile() {
                     skippingChunks = false;
                 break;
             case 'error':
+                clearTimeout(timer);
                 child.kill('SIGKILL');
                 exitWithTestError(msg.stack);
                 break;
             case 'done':
+                clearTimeout(timer);
                 child.kill('SIGKILL');
                 testNumber = msg.lastTestNumber;
                 failedTests = msg.failedTests;
@@ -308,4 +332,28 @@ function runNextFile() {
         }
         printer.end();
     });
+    
+    gotPulse = true;
+    if (basicOptions.timeoutMillis > 0)
+        awaitHeartbeat(child);
+}
+
+function awaitHeartbeat(child) {
+    timer = setTimeout(function() {
+        if (!gotPulse) {
+            child.kill('SIGKILL');
+            var filePath = filePaths[fileIndex];
+            if (filePath.indexOf(cwd) === 0)
+                filePath = filePath.substr(cwd.length + 1);
+            writeErrorMessage(filePath +" timed out after "+
+                    basicOptions.timeoutMillis +" millis of inactivity");
+            process.exit(1);
+        }
+        gotPulse = false;
+        awaitHeartbeat(child);
+    }, basicOptions.timeoutMillis);
+}
+
+function writeErrorMessage(message) {
+    process.stdout.write("*** "+ message +" ***\n\n");
 }

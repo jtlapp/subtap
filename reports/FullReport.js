@@ -24,7 +24,7 @@ FullReport.prototype.assertionFailed = function (subtestStack, assert) {
 
 FullReport.prototype.assertionPassed = function (subtestStack, assert) {
     this._printTestContext(subtestStack);
-    var text = BaseReport.BULLET_PASS +" "+ this._makeAssertion(assert);
+    var text = BaseReport.SYMBOL_PASS +" "+ this._makeAssertion(assert);
     this._maker.line(subtestStack.length, text);
 };
 
