@@ -19,6 +19,7 @@ var REGEX_CANONICAL = new RegExp("(\r|\x1b\\[F|\x1b)", 'g');
 var REGEX_JS_TERM = "[_$a-zA-Z\xA0-\uFFFF][_$a-zA-Z0-9\xA0-\uFFFF]*";
 var REGEX_FUNCTION_SIG = new RegExp("^function *(?:"+ REGEX_JS_TERM +" *)?"+
         "\\( *(?:"+ REGEX_JS_TERM +"(?:, *"+ REGEX_JS_TERM +")* *)?\\) *\\{");
+var WANTED_WIDTH = "wanted: ".length;
 
 // see https://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg
 
@@ -45,6 +46,7 @@ var COLORMAP_256 = {
 // _minResultsWidth - min width at which to wrap failure results area
 // _minResultsMargin - min right-margin wrap column for failure results
 // _showFunctionSource - whether to output entire source of functions
+// _boldDiffText - whether to make the found/wanted text that differs bold
 // _colorDiffText - whether to color the found/wanted text that differs
 // _underlineFirstDiff - whether to underline the first character that differs between found and wanted text
 // _interleaveDiffs - whether to interleave differing found/wanted lines
@@ -70,6 +72,7 @@ var COLORMAP_256 = {
  *   - minResultsWidth: min width at which to wrap failure results area
  *   - minResultsMargin: min right-margin wrap column for failure results
  *   - showFunctionSource: whether to output entire source of functions found in result differences (defaults to false)
+ *   - boldDiffText: whether to make the found/wanted text that differs bold (defaults to false)
  *   - colorDiffText: whether to color the found/wanted text that differs
  *   - underlineFirstDiff: whether to underline the first character that differs between found and wanted text
  *   - interleaveDiffs: whether to interleave differing found/wanted lines
@@ -86,6 +89,7 @@ function BaseReport(outputStream, options) {
     this._minResultsMargin = options.minResultsMargin || 80;
     this._truncateTraceAtPath = options.truncateTraceAtPath || null;
     this._showFunctionSource = options.showFunctionSource || false;
+    this._boldDiffText = options.boldDiffText || false,
     this._colorDiffText = options.colorDiffText || true,
     this._underlineFirstDiff = options.underlineFirstDiff || true,
     this._interleaveDiffs = options.interleaveDiffs || false,
@@ -232,6 +236,13 @@ BaseReport.prototype._failedClosing = function (counts) {
     this._maker.blankLine();
 };
 
+BaseReport.prototype._getResultsWidth = function (leftMargin) {
+    var rightMargin = this._minResultsMargin;
+    if (rightMargin - leftMargin < this._minResultsWidth)
+        return this._minResultsWidth;
+    return rightMargin - leftMargin;
+};
+
 BaseReport.prototype._makeAssertion = function (assert) {
     var result = (assert.ok ? 'passed' : 'FAILED');
     return result +"."+ assert.id +" - "+ assert.name;
@@ -267,14 +278,14 @@ BaseReport.prototype._normalizeValue = function (value, mustQuote) {
     // eliminating possibility of ambiguity.
     
     if (type === 'string') {
-        if (mustQuote || value.indexOf("\n") === -1) {
+        if (mustQuote) {
             // in this case, one of the compared strings has no "\n"
-            value = value.replace("\n", "\\n");
+            value = value.replace(/\n/g, "\\n");
             value = "'"+ value +"'"; // this value won't contain '
             quoted = true;
         }
         else
-            value = value.replace("\n", BaseReport.NEWLINE_SUB);
+            value = value.replace(/\n/g, BaseReport.NEWLINE_SUB);
     }
         
     // represent values as strings, truncating functions within JSON
@@ -306,28 +317,39 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
 
     // normalize found and wanted values to strings
     
-    var found = this._normalizeValue(assert.diag.found, false);
-    var wanted = this._normalizeValue(assert.diag.wanted, found.quoted);
+    var found = assert.diag.found;
+    var wanted = assert.diag.wanted;
+    var mustQuote = (typeof found === 'string' && found.indexOf("\n") === -1 ||
+            typeof wanted === 'string' && wanted.indexOf("\n") === -1);
+    found = this._normalizeValue(found, mustQuote);
+    wanted = this._normalizeValue(wanted, mustQuote);
 
     // output the value differences in the appropriate display format
 
-    var leftMargin = indentLevel * this._tabSize;
-    var paramNameWidth = 8; // length of 'wanted: '
-    var singleLineWidth = this._minResultsMargin - leftMargin - paramNameWidth;
-    var extraFoundSpaces = (found.quoted ? 0 : 1);
-    var extraWantedSpaces = (wanted.quoted ? 0 : 1);
-            
-    if (this._interleaveDiffs)
-        this._printInterleavedDiffs(indentLevel, found, wanted, leftMargin);
-    else if (found.val.length + extraFoundSpaces <= singleLineWidth &&
-            found.val.indexOf("\n") === -1 &&
-            wanted.val.length + extraWantedSpaces <= singleLineWidth &&
-            wanted.val.indexOf("\n") === -1)
-    {
-        this._printSingleLineDiffs(indentLevel, found, wanted, singleLineWidth);
+    if (this._interleaveDiffs && found.type === wanted.type &&
+            (found.type === 'string' || found.type === 'object')) {
+        this._printInterleavedDiffs(indentLevel, found, wanted);
     }
-    else
-        this._printMultiLineDiffs(indentLevel, found, wanted, leftMargin);
+    else {
+        var singleLineFound = (found.val.indexOf("\n") < 0);
+        var singleLineWanted = (wanted.val.indexOf("\n") < 0);
+        
+        var styleID = 'found';
+        if (singleLineFound) {
+            var label = (singleLineWanted ? 'found:  ' : 'found: ');
+            this._printSingleLineValue(label, styleID, indentLevel, found);
+        }
+        else
+            this._printMultilineValue('found:', styleID, indentLevel, found);
+
+        styleID = 'wanted';
+        if (singleLineWanted) {
+            this._printSingleLineValue('wanted: ', styleID, indentLevel,
+                    wanted);
+        }
+        else
+            this._printMultilineValue('wanted:', styleID, indentLevel, wanted);
+    }
         
     // delete values from diagnostics so they aren't printed in the YAML
     
@@ -352,7 +374,8 @@ BaseReport.prototype._printFailedAssertion = function (
         var diagText = yaml.safeDump(assert.diag, {
             indent: this._tabSize
         });
-        this._maker.multiline(indentLevel + 1, diagText);
+        ++indentLevel;
+        this._maker.multiline(indentLevel, indentLevel, diagText);
     }
 };
 
@@ -363,45 +386,35 @@ BaseReport.prototype._printInterleavedDiffs = function(
     console.log("*** interleaving not yet implemented ***");
 };
 
-BaseReport.prototype._printMultiLineDiffs = function (
-        indentLevel, found, wanted, leftParamMargin)
+BaseReport.prototype._printMultilineValue = function (
+        label, styleID, indentLevel, typedValue)
 {
-    var leftValueMargin = leftParamMargin + this._tabSize;
-    var lineWidth = this._minResultsMargin - leftValueMargin;
-    if (lineWidth < this._minResultsWidth)
-        lineWidth = this._minResultsWidth;
+    var leftMargin = indentLevel * this._tabSize; // of indented value
+    var resultsWidth = this._getResultsWidth(leftMargin);
 
-    var foundHighlight =
-            this._maker.colorWrap('found', found.val, 0, lineWidth);
-    this._maker.line(indentLevel, 'found: |');
-    this._maker.multiline(indentLevel + 1, foundHighlight);
-    
-    var wantedHighlight =
-            this._maker.colorWrap('wanted', wanted.val, 0, lineWidth);
-    this._maker.line(indentLevel, 'wanted: |');
-    this._maker.multiline(indentLevel + 1, wantedHighlight);
+    this._maker.line(indentLevel, label +' |');
+    this._maker.multiline(indentLevel + 1, indentLevel + 1,
+            this._maker.colorWrap(styleID, typedValue.val, resultsWidth));
 };
 
-BaseReport.prototype._printSingleLineDiffs = function (
-        indentLevel, found, wanted, lineWidth)
+BaseReport.prototype._printSingleLineValue = function (
+        label, styleID, indentLevel, typedValue)
 {
+    var leftMargin = (indentLevel + 1) * this._tabSize; // of indented value
+    var resultsWidth = this._getResultsWidth(leftMargin);
+    var firstLineWidth = resultsWidth + this._tabSize - label.length;
+
     if (this._styleMode > LineMaker.STYLE_MONOCHROME) {
         // make it easier to read short values shown on a background color
-        if (!found.quoted) { // quotes already space value from background
-            found.val = ' '+ found.val;
-            if (found.val.length < lineWidth)
-                found.val += this._color('found', ' '); // assume \x1b in val
-        }
-        if (!wanted.quoted) { // quotes already space value from background
-            wanted.val = ' '+ wanted.val;
-            if (wanted.val.length < lineWidth)
-                wanted.val += this._color('wanted', ' '); // assume \x1b in val
+        if (!typedValue.quoted) { // quotes already space value from background
+            typedValue.val = ' '+ typedValue.val;
+            if (typedValue.val.length < firstLineWidth)
+                typedValue.val += this._color(styleID, ' '); // may have \x1b
         }
     }
-    var foundHighlight = this._color('found', found.val);
-    this._maker.line(indentLevel, 'found:  '+ foundHighlight);
-    var wantedHighlight = this._color('wanted', wanted.val);
-    this._maker.line(indentLevel, 'wanted: '+ wantedHighlight);
+    this._maker.multiline(indentLevel, indentLevel + 1, label +
+            this._maker.colorWrap(styleID, typedValue.val, resultsWidth,
+                    label.length));
 };
 
 BaseReport.prototype._printTestContext = function (subtestStack) {

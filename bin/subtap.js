@@ -53,10 +53,11 @@ if (basicOptions.help) {
         "  -c0    : no color, emphasis, or other ANSI codes\n"+
         "  -c1    : monochrome mode, emphasis allowed\n"+
         "  -c2    : multicolor mode (default)\n"+
-        "  -dCIU  : found/wanted diff flags (default CU)\n"+
-        "           - (C) color diff text\n"+
-        "           - (I) interleave diff lines\n"+
-        "           - (U) underline 1st diff\n"+
+        "  -dBCIU : found/wanted diff flags (default CU)\n"+
+        "           - (B) bold the different text\n"+
+        "           - (C) color the different text\n"+
+        "           - (I) interleave different lines\n"+
+        "           - (U) underline the first differingn character\n"+
         "  -e     : catch and embed subtest exceptions in output\n"+
         "  -f     : output source code of functions in found/wanted values\n"+
         "  -h     : show this help information\n"+
@@ -150,6 +151,7 @@ if (!_.isUndefined(stringOptions.w)) {
 }
 
 if (!_.isUndefined(stringOptions.w)) {
+    stringOptions.boldDiffText = (stringOptions.w.indexOf('B') >= 0);
     stringOptions.colorDiffText = (stringOptions.w.indexOf('C') >= 0);
     stringOptions.underlineFirstDiff = (stringOptions.w.indexOf('U') >= 0);
     stringOptions.interleaveDiffs = (stringOptions.w.indexOf('I') >= 0);
@@ -262,6 +264,7 @@ function makePrettyPrinter(reportClass) {
         minResultsMargin: stringOptions.minResultsMargin || MIN_RESULTS_MARGIN,
         truncateTraceAtPath: childPath,
         showFunctionSource: basicOptions.showFunctionSource,
+        boldDiffText: stringOptions.boldDiffText || false,
         colorDiffText: stringOptions.colorDiffText || true,
         underlineFirstDiff: stringOptions.underlineFirstDiff || true,
         interleaveDiffs: stringOptions.interleaveDiffs || false,
