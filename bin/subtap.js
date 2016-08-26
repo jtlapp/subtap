@@ -150,12 +150,10 @@ if (!_.isUndefined(stringOptions.w)) {
     }
 }
 
-if (!_.isUndefined(stringOptions.w)) {
-    stringOptions.boldDiffText = (stringOptions.w.indexOf('B') >= 0);
-    stringOptions.colorDiffText = (stringOptions.w.indexOf('C') >= 0);
-    stringOptions.underlineFirstDiff = (stringOptions.w.indexOf('U') >= 0);
-    stringOptions.interleaveDiffs = (stringOptions.w.indexOf('I') >= 0);
-}
+var boldDiffText = getOptionFlag(stringOptions.d, 'B', false);
+var colorDiffText = getOptionFlag(stringOptions.d, 'C', true);
+var underlineFirstDiff = getOptionFlag(stringOptions.d, 'U', true);
+var interleaveDiffs = getOptionFlag(stringOptions.d, 'I', false);
     
 var cwd = process.cwd();
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
@@ -211,15 +209,13 @@ runNextFile(); // run first file; each subsequent file runs after prev closes
 
 function exitWithTestError(stack) {
     var callInfo = callstack.getDeepestCallInfo(stack, false);
-    process.stderr.write("\n");
+    console.error("");
     if (callInfo !== null) {
-        process.stderr.write(callInfo.file +":"+
-                callInfo.line +":"+ callInfo.column +"\n");
-        process.stderr.write(callInfo.source +"\n");
-        process.stderr.write(' '.repeat(callInfo.column - 1));
-        process.stderr.write("^\n");
+        console.error(callInfo.file +":"+ callInfo.line +":"+ callInfo.column);
+        console.error(callInfo.source);
+        console.error(' '.repeat(callInfo.column - 1) +"^");
     }
-    process.stderr.write(stack +"\n\n");
+    console.error(stack +"\n");
     process.exit(1);
 }
 
@@ -246,14 +242,22 @@ function extractStringOptions(argv, optionLetters) {
     var stringOptions = {};
     var i = argv.length;
     while (--i >= 0) {
-        optionLetters.forEach(function(letter) {
+        for (var j = 0; j < optionLetters.length; ++j ) {
+            var letter = optionLetters[j];
             if (argv[i].startsWith('-'+ letter)) {
                 stringOptions[letter] = argv[i].substr(2);
                 argv.splice(i, 1);
+                break;
             }
-        });
+        }
     }
     return stringOptions;
+}
+
+function getOptionFlag(flags, flagLetter, defaultValue) {
+    if (_.isUndefined(flags))
+        return defaultValue;
+    return (flags.indexOf(flagLetter) >= 0);
 }
 
 function makePrettyPrinter(reportClass) {
@@ -264,10 +268,10 @@ function makePrettyPrinter(reportClass) {
         minResultsMargin: stringOptions.minResultsMargin || MIN_RESULTS_MARGIN,
         truncateTraceAtPath: childPath,
         showFunctionSource: basicOptions.showFunctionSource,
-        boldDiffText: stringOptions.boldDiffText || false,
-        colorDiffText: stringOptions.colorDiffText || true,
-        underlineFirstDiff: stringOptions.underlineFirstDiff || true,
-        interleaveDiffs: stringOptions.interleaveDiffs || false,
+        boldDiffText: boldDiffText,
+        colorDiffText: colorDiffText,
+        underlineFirstDiff: underlineFirstDiff,
+        interleaveDiffs: interleaveDiffs,
         canonical: canonical
     }));
 }

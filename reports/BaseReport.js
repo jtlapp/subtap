@@ -24,19 +24,23 @@ var WANTED_WIDTH = "wanted: ".length;
 // see https://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg
 
 var COLORMAP_16 = {
-    'fail': '\x1b[31m', // dark red
-    'fail-emph': '\x1b[97m\x1b[101m', // bright white on bright red
-    'found': '\x1b[103m', // bright yellow
-    'pass': '\x1b[32m', // dark green
-    'wanted': '\x1b[106m' // bright cyan
+    'bad': '\x1b[31m', // dark red text
+    'fail': '\x1b[31m', // dark red text
+    'fail-emph': '\x1b[97m\x1b[101m', // bright white on bright red background
+    'found': '\x1b[103m', // bright yellow background
+    'good': '\x1b[32m', // dark green text
+    'pass': '\x1b[32m', // dark green text
+    'wanted': '\x1b[106m' // bright cyan background
 };
 
 var COLORMAP_256 = {
-    'fail': '\x1b[31m', // dark red
+    'bad': '\x1b[31m', // dark red text
+    'fail': '\x1b[31m', // dark red text
     'fail-emph': '\x1b[38;5;124m\x1b[48;5;224m', // dark red on light red
-    'found': '\x1b[48;5;225m', // light pink
-    'pass': '\x1b[38;5;022m', // dark green
-    'wanted': '\x1b[48;5;194m' // light green
+    'found': '\x1b[48;5;225m', // light pink background
+    'good': '\x1b[38;5;022m', // dark green text
+    'pass': '\x1b[38;5;022m', // dark green text
+    'wanted': '\x1b[48;5;194m' // light green background
 };
 
 //// PRIVATE CONFIGURATION ////////////////////////////////////////////////////
@@ -89,10 +93,10 @@ function BaseReport(outputStream, options) {
     this._minResultsMargin = options.minResultsMargin || 80;
     this._truncateTraceAtPath = options.truncateTraceAtPath || null;
     this._showFunctionSource = options.showFunctionSource || false;
-    this._boldDiffText = options.boldDiffText || false,
-    this._colorDiffText = options.colorDiffText || true,
-    this._underlineFirstDiff = options.underlineFirstDiff || true,
-    this._interleaveDiffs = options.interleaveDiffs || false,
+    this._boldDiffText = options.boldDiffText,
+    this._colorDiffText = options.colorDiffText,
+    this._underlineFirstDiff = options.underlineFirstDiff,
+    this._interleaveDiffs = options.interleaveDiffs,
     this._closeStream = options.closeStream || false;
     
     var self = this;
@@ -223,6 +227,14 @@ BaseReport.prototype._color = function (styleID, text) {
     return this._maker.color(styleID, text);
 };
 
+BaseReport.prototype._colorDiff = function (styleID, text) {
+    if (this._colorDiffText)
+        text = this._maker.color(styleID, text);
+    if (this._boldDiffText)
+        text = this._bold(text);
+    return text;
+};
+
 BaseReport.prototype._failedClosing = function (counts) {
     // "Failed n of N root subtests, n of N assertions"
     var text = "Failed "+
@@ -241,6 +253,44 @@ BaseReport.prototype._getResultsWidth = function (leftMargin) {
     if (rightMargin - leftMargin < this._minResultsWidth)
         return this._minResultsWidth;
     return rightMargin - leftMargin;
+};
+
+BaseReport.prototype._highlightDiff = function (
+        bkgStyleID, styleID, typedValue, i
+) {
+    var s = typedValue.val.substr(0, i);
+    var diff = typedValue.val.substr(i);
+    if (this._underlineFirstDiff) {
+        s += this._colorDiff(styleID, this._maker.style('underline', diff[0]));
+        diff = this._color(bkgStyleID, diff.substr(1));
+    }
+    if (diff.length > 0)
+        s += this._colorDiff(styleID, diff);
+    typedValue.val = s;
+};
+
+BaseReport.prototype._highlightDiffs = function (found, wanted) {
+
+    // find the index of the first different position, if any
+
+    var baseLength = found.val.length;
+    if (baseLength > wanted.val.length)
+        baseLength = wanted.val.length;
+    var i = 0;
+    while (i < baseLength && found.val[i] === wanted.val[i])
+        ++i;
+        
+    // return early if the values are the same
+
+    if (i === found.val.length && i === wanted.val.length)
+        return; // values are the same
+    
+    // highlight text from the point at which it differs
+    
+    if (i < found.val.length)
+        this._highlightDiff('found', 'bad', found, i);
+    if (i < wanted.val.length)
+        this._highlightDiff('wanted', 'good', wanted, i);
 };
 
 BaseReport.prototype._makeAssertion = function (assert) {
@@ -331,6 +381,9 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
         this._printInterleavedDiffs(indentLevel, found, wanted);
     }
     else {
+        if (found.type === wanted.type &&
+                (found.type === 'string' || found.type === 'object'))
+            this._highlightDiffs(found, wanted);
         var singleLineFound = (found.val.indexOf("\n") < 0);
         var singleLineWanted = (wanted.val.indexOf("\n") < 0);
         
@@ -369,12 +422,13 @@ BaseReport.prototype._printFailedAssertion = function (
     this._maker.line(indentLevel, line);
 
     if (!_.isUndefined(assert.diag)) { // exceptions may not yield a diag
-        if (!_.isUndefined(assert.diag.found))
-            this._printDiffs(indentLevel + 1, assert);
-        var diagText = yaml.safeDump(assert.diag, {
-            indent: this._tabSize
-        });
         ++indentLevel;
+        if (!_.isUndefined(assert.diag.found))
+            this._printDiffs(indentLevel, assert);
+        var diagText = yaml.safeDump(assert.diag, {
+            indent: this._tabSize,
+            lineWidth: this._minResultsMargin - indentLevel*this._tabSize
+        });
         this._maker.multiline(indentLevel, indentLevel, diagText);
     }
 };
@@ -391,8 +445,13 @@ BaseReport.prototype._printMultilineValue = function (
 {
     var leftMargin = indentLevel * this._tabSize; // of indented value
     var resultsWidth = this._getResultsWidth(leftMargin);
-
-    this._maker.line(indentLevel, label +' |');
+    var endsWithLF = false;
+    if (typedValue.val[typedValue.val.length - 1] === "\n") {
+        endsWithLF = true;
+        typedValue.val = typedValue.val.substr(0, typedValue.val.length - 1);
+    }
+    
+    this._maker.line(indentLevel, label + (endsWithLF ? ' |' : ' |-'));
     this._maker.multiline(indentLevel + 1, indentLevel + 1,
             this._maker.colorWrap(styleID, typedValue.val, resultsWidth));
 };

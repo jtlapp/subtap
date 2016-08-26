@@ -72,14 +72,6 @@ tap.test = function subtapRootSubtest(name, extra, cb, deferred) {
 installTypedAsserts(tap);
 installTypedAsserts(tapTest.prototype);
 
-tap.tearDown(function() {
-    process.send({
-        event: 'done',
-        lastTestNumber: testNumber,
-        failedTests: failedTests
-    });
-});
-
 tap.pipe(new Writable({
     write: function(chunk, encoding, done) {
         if (!exiting) {
@@ -102,11 +94,26 @@ process.on('message', function (config) {
     
     runTest(function() {
         require(config.filePath);
+        
+        // installing a tearDown handler induces tap autoend,
+        // which sometimes causes tearDown before tests install,
+        // so have to install handler *after* registering tests.
+        // the handler installs because tap has to wait for all
+        // tests by waiting at least until the next tick.
+        tap.tearDown(function() {
+            process.send({
+                event: 'done',
+                lastTestNumber: testNumber,
+                failedTests: failedTests
+            });
+        });
     }, false);
     tap.end();
 });
 
 process.send({ event: 'ready' });
+
+// forked child won't automatically exit
 
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
