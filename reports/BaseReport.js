@@ -14,7 +14,7 @@ var callstack = require('../lib/callstack');
 
 //// PRIVATE CONSTANTS ////////////////////////////////////////////////////////
 
-var REGEX_UNPRINTABLE = xregexp("[\\p{C}\\\\]", 'g');
+var REGEX_STRING_ESC = xregexp('["\\p{C}\\\\]', 'g');
 var REGEX_CANONICAL = new RegExp("(\r|\x1b\\[F|\x1b)", 'g');
 var REGEX_JS_TERM = "[_$a-zA-Z\xA0-\uFFFF][_$a-zA-Z0-9\xA0-\uFFFF]*";
 var REGEX_FUNCTION_SIG = new RegExp("^function *(?:"+ REGEX_JS_TERM +" *)?"+
@@ -235,6 +235,31 @@ BaseReport.prototype._colorDiff = function (styleID, text) {
     return text;
 };
 
+BaseReport.prototype._escapeString = function (
+        str, doubleQuotesToo, newlineSubstitute)
+{
+    return xregexp.replace(str, REGEX_STRING_ESC, function(match) {
+        switch (match) {
+            case "\n":
+                if (newlineSubstitute)
+                    return newlineSubstitute;
+                return match;
+            case '"':
+                if (doubleQuotesToo)
+                    return '\\"';
+                return match;
+            case "\\":
+                return "\\\\";
+            case "\r":
+                return "\\r";
+            case "\t":
+                return "\\t";
+        };
+        var charCode = match.charCodeAt(0);
+        return "\\u"+ _.padStart(charCode.toString(16), 4, '0');
+    });
+};
+
 BaseReport.prototype._failedClosing = function (counts) {
     // "Failed n of N root subtests, n of N assertions"
     var text = "Failed "+
@@ -256,16 +281,23 @@ BaseReport.prototype._getResultsWidth = function (leftMargin) {
 };
 
 BaseReport.prototype._highlightDiff = function (
-        bkgStyleID, styleID, typedValue, i
-) {
+        bkgStyleID, styleID, typedValue, i)
+{
     var s = typedValue.val.substr(0, i);
     var diff = typedValue.val.substr(i);
-    if (this._underlineFirstDiff) {
+    var quote = null;
+    if (typedValue.quoted) {
+        quote = diff[diff.length - 1];
+        diff = diff.substr(0, diff.length - 1);
+    }
+    if (diff.length > 0 && this._underlineFirstDiff) {
         s += this._colorDiff(styleID, this._maker.style('underline', diff[0]));
         diff = this._color(bkgStyleID, diff.substr(1));
     }
     if (diff.length > 0)
         s += this._colorDiff(styleID, diff);
+    if (quote)
+        s += this._maker.color(bkgStyleID, quote);
     typedValue.val = s;
 };
 
@@ -322,20 +354,14 @@ BaseReport.prototype._normalizeValue = function (value, mustQuote) {
         type = 'function';
     value = newVal;
     
-    // quote single-line string values and make all newlines visible in
-    // multiline values. because all values that are ambiguously strings or
-    // JS-native values (e.g. "undefined") have no newlines, they are quotes,
-    // eliminating possibility of ambiguity.
-    
     if (type === 'string') {
         if (mustQuote) {
-            // in this case, one of the compared strings has no "\n"
-            value = value.replace(/\n/g, "\\n");
-            value = "'"+ value +"'"; // this value won't contain '
+            value = this._escapeString(value, true, "\\n");
+            value = '"'+ value +'"';
             quoted = true;
         }
         else
-            value = value.replace(/\n/g, BaseReport.NEWLINE_SUB);
+            value = this._escapeString(value, false, BaseReport.NEWLINE_SUB);
     }
         
     // represent values as strings, truncating functions within JSON

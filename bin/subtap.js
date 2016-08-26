@@ -53,7 +53,7 @@ if (basicOptions.help) {
         "  -c0    : no color, emphasis, or other ANSI codes\n"+
         "  -c1    : monochrome mode, emphasis allowed\n"+
         "  -c2    : multicolor mode (default)\n"+
-        "  -dBCIU : found/wanted diff flags (default CU)\n"+
+        "  -dBCIU : found/wanted diff flags (default BCU)\n"+
         "           - (B) bold the different text\n"+
         "           - (C) color the different text\n"+
         "           - (I) interleave different lines\n"+
@@ -150,7 +150,7 @@ if (!_.isUndefined(stringOptions.w)) {
     }
 }
 
-var boldDiffText = getOptionFlag(stringOptions.d, 'B', false);
+var boldDiffText = getOptionFlag(stringOptions.d, 'B', true);
 var colorDiffText = getOptionFlag(stringOptions.d, 'C', true);
 var underlineFirstDiff = getOptionFlag(stringOptions.d, 'U', true);
 var interleaveDiffs = getOptionFlag(stringOptions.d, 'I', false);
