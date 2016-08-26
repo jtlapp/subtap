@@ -20,7 +20,7 @@ var MIN_RESULTS_WIDTH = 30; // min width at which to wrap failure results area
 var MIN_RESULTS_MARGIN = 80; // min right-margin wrap column for failure results
 var DEFAULT_TIMEOUT_MILLIS = 3000; // default timeout period for inactivity
 
-//// CONFIGURATION ////////////////////////////////////////////////////////////
+//// ARGUMENT CONFIGURATION ///////////////////////////////////////////////////
 
 var argv = process.argv.slice(2);
 var dashDashOptions = extractDashDashOptions(argv);
@@ -67,47 +67,18 @@ if (basicOptions.help) {
         "  -wM:N  : results area min width (M), min wrap column (N) (default 20:80)\n"+ 
         "  --fail : restrict output to tests + assertions that fail\n"+
         "  --all  : output results of all tests and assertions\n"+
-        "  --json : output TAP events in JSON\n"+
+        "  --json : output tap-parser events in JSON\n"+
         "  --tally: restrict output to root subtests + failures (default)\n"+
         "  --tap  : output raw TAP text\n"
     );
     process.exit(0);
 }
 
-var childPath = path.resolve(__dirname, "_runfile.js");
-var printerMakerMap = {
-    all: function() {
-        return makePrettyPrinter(subtap.FullReport);
-    },
-    fail: function () {
-        return makePrettyPrinter(subtap.FailureReport);
-    },
-    json: function() {
-        return new subtap.JsonPrinter(process.stdout, {
-            truncateTraceAtPath: childPath
-        });
-    },
-    tally: function() {
-        return makePrettyPrinter(subtap.RootSubtestReport);
-    },
-    tap: function() {
-        return new Writable({
-            write: function(chunk, encoding, done) {
-                process.stdout.write(chunk.toString());
-                done();
-            }
-        });
-    }
-};
-
 if (dashDashOptions.length > 1)
     exitWithUserError("more than one output format specified");
 var outputFormat = 'tally';
 if (dashDashOptions.length === 1)
     outputFormat = dashDashOptions[0];
-var makePrinter = printerMakerMap[outputFormat];
-if (!makePrinter)
-    exitWithUserError("unrecognized output format '"+ outputFormat +"'");
     
 var colorMode = basicOptions.colorMode;
 if (colorMode === true)
@@ -133,7 +104,6 @@ if (_.isNumber(basicOptions.bailOnFail)) {
     maxFailedTests = basicOptions.bailOnFail;
     basicOptions.bailOnFail = false;
 }
-var childEnv = (basicOptions.bailOnFail ? { TAP_BAIL: '1' } : {});
 
 if (basicOptions.tabSize === true || basicOptions.tabSize === 0)
     exitWithUserError("-iN option requires a tab size N >= 1");
@@ -155,8 +125,23 @@ var colorDiffText = getOptionFlag(stringOptions.d, 'C', true);
 var underlineFirstDiff = getOptionFlag(stringOptions.d, 'U', true);
 var interleaveDiffs = getOptionFlag(stringOptions.d, 'I', false);
     
+//// STATE ////////////////////////////////////////////////////////////////////
+
+var filePaths = []; // array of all test files to run
+var fileIndex = 0; // index of currently running test file
+var testNumber = 0; // number of most-recently output root subtest
+var failedTests = 0; // number of tests that have failed
+var bailed = false; // whether test file bailed out
+var skippingChunks = false; // whether skipping TAP output
+var gotPulse; // whether child process was recently active
+var timer; // heartbeat timer monitoring child activity
+
+//// TEST RUNNER //////////////////////////////////////////////////////////////
+
 var cwd = process.cwd();
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
+var childPath = path.resolve(__dirname, "_runfile.js");
+var childEnv = (basicOptions.bailOnFail ? { TAP_BAIL: '1' } : {});
 
 // Locate the installation of the tap module that these test files will use. We need to tweak loads of this particular installation.
 
@@ -170,18 +155,35 @@ catch(err) {
     require(tapPath); // assume testing subtap module itself
 }
 
-//// STATE ////////////////////////////////////////////////////////////////////
+// Grab the factory method for the printer indicated by outputFormat.
 
-var filePaths = []; // array of all test files to run
-var fileIndex = 0; // index of currently running test file
-var testNumber = 0; // number of most-recently output root subtest
-var failedTests = 0; // number of tests that have failed
-var bailed = false; // whether test file bailed out
-var skippingChunks = false; // whether skipping TAP output
-var gotPulse; // whether child process was recently active
-var timer; // heartbeat timer monitoring child activity
-
-//// RUN TESTS ////////////////////////////////////////////////////////////////
+var printerMakerMap = {
+    all: function() {
+        return makePrettyPrinter(subtap.FullReport);
+    },
+    fail: function () {
+        return makePrettyPrinter(subtap.FailureReport);
+    },
+    json: function() {
+        return new subtap.JsonPrinter(process.stdout, {
+            truncateTraceAtPath: childPath
+        });
+    },
+    tally: function() {
+        return makePrettyPrinter(subtap.RootSubtestReport);
+    },
+    tap: function() {
+        return new Writable({
+            write: function(chunk, encoding, done) {
+                process.stdout.write(chunk.toString());
+                done();
+            }
+        });
+    }
+};
+var makePrinter = printerMakerMap[outputFormat];
+if (!makePrinter)
+    exitWithUserError("unrecognized output format '"+ outputFormat +"'");
 
 // If no files are specified, assume all .js in ./test and ./tests.
 
