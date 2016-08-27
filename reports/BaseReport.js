@@ -20,6 +20,7 @@ var REGEX_JS_TERM = "[_$a-zA-Z\xA0-\uFFFF][_$a-zA-Z0-9\xA0-\uFFFF]*";
 var REGEX_FUNCTION_SIG = new RegExp("^function *(?:"+ REGEX_JS_TERM +" *)?"+
         "\\( *(?:"+ REGEX_JS_TERM +"(?:, *"+ REGEX_JS_TERM +")* *)?\\) *\\{");
 var WANTED_WIDTH = "wanted: ".length;
+var EMPH_LABELS = ['diff', 'diffs'];
 
 // see https://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg
 
@@ -29,6 +30,7 @@ var COLORMAP_16 = {
     'fail-emph': '\x1b[97m\x1b[101m', // bright white on bright red background
     'found': '\x1b[103m', // bright yellow background
     'good': '\x1b[32m', // dark green text
+    'label': '\x1b[90m', // light gray text
     'pass': '\x1b[32m', // dark green text
     'wanted': '\x1b[106m' // bright cyan background
 };
@@ -39,6 +41,7 @@ var COLORMAP_256 = {
     'fail-emph': '\x1b[38;5;124m\x1b[48;5;224m', // dark red on light red
     'found': '\x1b[48;5;225m', // light pink background
     'good': '\x1b[38;5;022m', // dark green text
+    'label': '\x1b[38;5;242m', // gray text
     'pass': '\x1b[38;5;022m', // dark green text
     'wanted': '\x1b[48;5;194m' // light green background
 };
@@ -245,6 +248,34 @@ BaseReport.prototype._createResult = function (label, property, value) {
     };
     result.multiline = (result.type === 'string' && value.indexOf("\n") >= 0);
     return result;
+};
+
+BaseReport.prototype._deemphRootLabels = function (text) {
+    var lines = text.split("\n");
+    var out = '';
+    for (var i = 0; i < lines.length; ++i) {
+        var line = lines[i];
+        if (line.length === 0 || line.charAt(0) === ' ')
+            out += line + "\n";
+        else {
+            var deemphLength = line.indexOf(':');
+            if (EMPH_LABELS.indexOf(line.substr(0, deemphLength)) >= 0)
+                out += line + "\n";
+            else {
+                ++deemphLength;
+                if (deemphLength + 2 <= line.length) {
+                    var c = line.charAt(deemphLength + 1);
+                    if (c === '|' || c === '>')
+                        deemphLength = line.length;
+                }
+                out += this._maker.color('label', line.substr(0, deemphLength));
+                if (deemphLength < line.length)
+                    out += line.substr(deemphLength);
+                out += "\n";
+            }
+        }
+    }
+    return out;
 };
 
 BaseReport.prototype._escapeString = function (
@@ -484,6 +515,7 @@ BaseReport.prototype._printFailedAssertion = function (
             indent: this._tabSize,
             lineWidth: this._minResultsMargin - indentLevel*this._tabSize
         });
+        diagText = this._deemphRootLabels(diagText);
         this._maker.multiline(indentLevel, indentLevel, diagText);
     }
 };
