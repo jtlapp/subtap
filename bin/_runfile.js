@@ -11,7 +11,6 @@ var Writable = require('stream').Writable;
 
 var tapPath = process.argv[2];
 var tap = require(tapPath);
-var tapTest = require(path.resolve(tapPath, '../../lib/test.js'));
 var tapSynonyms = require(path.resolve(tapPath, '../../lib/synonyms.js'));
 
 //// CONSTANTS ////////////////////////////////////////////////////////////////
@@ -70,7 +69,7 @@ tap.test = function subtapRootSubtest(name, extra, cb, deferred) {
 };
 
 installTypedAsserts(tap);
-installTypedAsserts(tapTest.prototype);
+installTypedAsserts(tap.Test.prototype);
 
 tap.pipe(new Writable({
     write: function(chunk, encoding, done) {

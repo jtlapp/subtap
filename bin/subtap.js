@@ -214,7 +214,7 @@ runNextFile(); // run first file; each subsequent file runs after prev closes
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
 function exitWithTestError(stack) {
-    var callInfo = callstack.getDeepestCallInfo(stack, false);
+    var callInfo = callstack.getDeepestCallInfo(stack);
     console.error("");
     if (callInfo !== null) {
         console.error(callInfo.file +":"+ callInfo.line +":"+ callInfo.column);
