@@ -235,6 +235,17 @@ BaseReport.prototype._colorDiff = function (styleID, text) {
     return text;
 };
 
+BaseReport.prototype._createResult = function (label, property, value) {
+    var result = {
+        type: typeof value,
+        label: label +':', // add ':' because may later pad with spaces
+        val: value,
+        property: property
+    };
+    result.multiline = (result.type === 'string' && value.indexOf("\n") >= 0);
+    return result;
+};
+
 BaseReport.prototype._escapeString = function (
         str, doubleQuotesToo, newlineSubstitute)
 {
@@ -301,28 +312,28 @@ BaseReport.prototype._highlightDiff = function (
     typedValue.val = s;
 };
 
-BaseReport.prototype._highlightDiffs = function (found, wanted) {
+BaseReport.prototype._highlightDiffs = function (actual, intent) {
 
     // find the index of the first different position, if any
 
-    var baseLength = found.val.length;
-    if (baseLength > wanted.val.length)
-        baseLength = wanted.val.length;
+    var baseLength = actual.val.length;
+    if (baseLength > intent.val.length)
+        baseLength = intent.val.length;
     var i = 0;
-    while (i < baseLength && found.val[i] === wanted.val[i])
+    while (i < baseLength && actual.val[i] === intent.val[i])
         ++i;
         
     // return early if the values are the same
 
-    if (i === found.val.length && i === wanted.val.length)
+    if (i === actual.val.length && i === intent.val.length)
         return; // values are the same
     
     // highlight text from the point at which it differs
     
-    if (i < found.val.length)
-        this._highlightDiff('found', 'bad', found, i);
-    if (i < wanted.val.length)
-        this._highlightDiff('wanted', 'good', wanted, i);
+    if (i < actual.val.length)
+        this._highlightDiff('found', 'bad', actual, i);
+    if (i < intent.val.length)
+        this._highlightDiff('wanted', 'good', intent, i);
 };
 
 BaseReport.prototype._makeAssertion = function (assert) {
@@ -343,22 +354,25 @@ BaseReport.prototype._makeName = function (bullet, testInfo, color) {
     return text;
 };
 
-BaseReport.prototype._normalizeValue = function (value, mustQuote) {
-    var type = typeof value;
-    var quoted = false;
+BaseReport.prototype._normalizeTypedValue = function (typedValue, mustQuote) {
+    var value = typedValue.val;
+    typedValue.quoted = false;
 
     // identify serialized functions and (by default) remove all but signature
     
-    var newVal = this._truncateFunction(null, value);
-    if (newVal !== value)
-        type = 'function';
-    value = newVal;
+    var newValue = this._truncateFunction(null, value);
+    if (newValue !== value)
+        typedValue.type = 'function';
+    value = newValue;
     
-    if (type === 'string') {
+    // escape string values, quoting them when required
+    
+    if (typedValue.type === 'string') {
         if (mustQuote) {
             value = this._escapeString(value, true, "\\n");
             value = '"'+ value +'"';
-            quoted = true;
+            typedValue.quoted = true;
+            typedValue.multiline = false;
         }
         else
             value = this._escapeString(value, false, BaseReport.NEWLINE_SUB);
@@ -366,16 +380,14 @@ BaseReport.prototype._normalizeValue = function (value, mustQuote) {
         
     // represent values as strings, truncating functions within JSON
 
-    if (type === 'object')
-        value = JSON.stringify(value, this._truncateFunction, this._indent);
-    else
-        value = String(value); // okay even if value is a string
-        
-    return {
-        type: type, // JS type that the value represents
-        val: value, // a string representation of the value
-        quoted: quoted // whether quotes where added to a string value
-    };
+    else {
+        if (typedValue.type === 'object')
+            value = JSON.stringify(value, this._truncateFunction, this._indent);
+        else
+            value = String(value);
+        typedValue.multiline = (value.indexOf("\n") >= 0);
+    }
+    typedValue.val = value;
 };
 
 BaseReport.prototype._passedClosing = function (counts) {
@@ -391,49 +403,65 @@ BaseReport.prototype._passedClosing = function (counts) {
 
 BaseReport.prototype._printDiffs = function (indentLevel, assert) {
 
+    // retrieve information about actual and intended results
+    
+    var actual = this._createResult('found', 'found', assert.diag.found);
+    var intent = null;
+    if (!_.isUndefined(assert.diag.wanted))
+        intent = this._createResult('wanted', 'wanted', assert.diag.wanted);
+    else if (!_.isUndefined(assert.diag.doNotWant)) {
+        intent = this._createResult('notWanted', 'doNotWant',
+                 assert.diag.doNotWant);
+    }
+
     // normalize found and wanted values to strings
     
-    var found = assert.diag.found;
-    var wanted = assert.diag.wanted;
-    var mustQuote = (typeof found === 'string' && found.indexOf("\n") === -1 ||
-            typeof wanted === 'string' && wanted.indexOf("\n") === -1);
-    found = this._normalizeValue(found, mustQuote);
-    wanted = this._normalizeValue(wanted, mustQuote);
+    var mustQuote = (actual.type === 'string' && !actual.multiline ||
+            intent.type === 'string' && !intent.multiline);
+    this._normalizeTypedValue(actual, mustQuote);
+    this._normalizeTypedValue(intent, mustQuote);
 
     // output the value differences in the appropriate display format
 
-    if (this._interleaveDiffs && found.type === wanted.type &&
-            (found.type === 'string' || found.type === 'object')) {
-        this._printInterleavedDiffs(indentLevel, found, wanted);
+    if (!intent) {
+        if (actual.multiline)
+            this._printMultilineValue('found', indentLevel, actual);
+        else
+            this._printSingleLineValue('found', indentLevel, actual);
+    }
+    else if (this._interleaveDiffs && actual.type === intent.type &&
+            (actual.type === 'string' || actual.type === 'object')) {
+        this._printInterleavedDiffs(indentLevel, actual, intent);
     }
     else {
-        if (found.type === wanted.type &&
-                (found.type === 'string' || found.type === 'object'))
-            this._highlightDiffs(found, wanted);
-        var singleLineFound = (found.val.indexOf("\n") < 0);
-        var singleLineWanted = (wanted.val.indexOf("\n") < 0);
+        if (actual.type === intent.type &&
+                (actual.type === 'string' || actual.type === 'object'))
+            this._highlightDiffs(actual, intent);
         
-        var styleID = 'found';
-        if (singleLineFound) {
-            var label = (singleLineWanted ? 'found:  ' : 'found: ');
-            this._printSingleLineValue(label, styleID, indentLevel, found);
+        if (actual.multiline)
+            this._printMultilineValue('found', indentLevel, actual);
+        else {
+            if (!intent.multiline) {
+                var labelDiff = actual.label.length - intent.label.length;
+                if (labelDiff < 0)
+                    actual.label += this._maker.spaces(-labelDiff);
+                else if (labelDiff > 0)
+                    intent.label += this._maker.spaces(labelDiff);
+            }
+            this._printSingleLineValue('found', indentLevel, actual);
         }
-        else
-            this._printMultilineValue('found:', styleID, indentLevel, found);
 
-        styleID = 'wanted';
-        if (singleLineWanted) {
-            this._printSingleLineValue('wanted: ', styleID, indentLevel,
-                    wanted);
-        }
+        if (intent.multiline)
+            this._printMultilineValue('wanted', indentLevel, intent);
         else
-            this._printMultilineValue('wanted:', styleID, indentLevel, wanted);
+            this._printSingleLineValue('wanted', indentLevel, intent);
     }
         
     // delete values from diagnostics so they aren't printed in the YAML
     
-    delete(assert.diag['found']);
-    delete(assert.diag['wanted']);
+    delete(assert.diag[actual.property]);
+    if (intent)
+        delete(assert.diag[intent.property]);
 };
 
 BaseReport.prototype._printFailedAssertion = function (
@@ -460,31 +488,32 @@ BaseReport.prototype._printFailedAssertion = function (
 };
 
 BaseReport.prototype._printInterleavedDiffs = function(
-    indentLevel, found, wanted, leftMargin)
+    indentLevel, actual, intent, leftMargin)
 {
     // TBD
     console.log("*** interleaving not yet implemented ***");
 };
 
 BaseReport.prototype._printMultilineValue = function (
-        label, styleID, indentLevel, typedValue)
+        styleID, indentLevel, typedValue)
 {
-    var leftMargin = indentLevel * this._tabSize; // of indented value
+    var leftMargin = (indentLevel + 1) * this._tabSize; // of indented value
     var resultsWidth = this._getResultsWidth(leftMargin);
-    var endsWithLF = false;
+    var yamlMark = ' |-';
     if (typedValue.val[typedValue.val.length - 1] === "\n") {
-        endsWithLF = true;
+        yamlMark = ' |';
         typedValue.val = typedValue.val.substr(0, typedValue.val.length - 1);
     }
     
-    this._maker.line(indentLevel, label + (endsWithLF ? ' |' : ' |-'));
+    this._maker.line(indentLevel, typedValue.label + yamlMark);
     this._maker.multiline(indentLevel + 1, indentLevel + 1,
             this._maker.colorWrap(styleID, typedValue.val, resultsWidth));
 };
 
 BaseReport.prototype._printSingleLineValue = function (
-        label, styleID, indentLevel, typedValue)
+        styleID, indentLevel, typedValue)
 {
+    var label = typedValue.label +' ';
     var leftMargin = (indentLevel + 1) * this._tabSize; // of indented value
     var resultsWidth = this._getResultsWidth(leftMargin);
     var firstLineWidth = resultsWidth + this._tabSize - label.length;
@@ -499,7 +528,7 @@ BaseReport.prototype._printSingleLineValue = function (
     }
     this._maker.multiline(indentLevel, indentLevel + 1, label +
             this._maker.colorWrap(styleID, typedValue.val, resultsWidth,
-                    label.length));
+                    resultsWidth - firstLineWidth));
 };
 
 BaseReport.prototype._printTestContext = function (subtestStack) {

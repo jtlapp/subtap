@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+// To debug, put child on different debug port via --node-arg=--debug=5859
+
 //// MODULES //////////////////////////////////////////////////////////////////
 
 var Writable = require('stream').Writable;
@@ -23,7 +25,8 @@ var DEFAULT_TIMEOUT_MILLIS = 3000; // default timeout period for inactivity
 //// ARGUMENT CONFIGURATION ///////////////////////////////////////////////////
 
 var argv = process.argv.slice(2);
-var dashDashOptions = extractDashDashOptions(argv);
+var childNodeArgs = extractPrefixedOptions('--node-arg=', argv);
+var dashDashOptions = extractPrefixedOptions('--', argv);
 var stringOptions = extractStringOptions(argv, ['d', 'w']);
 var basicOptions = minimist(argv, {
     alias: {
@@ -69,7 +72,8 @@ if (basicOptions.help) {
         "  --all  : output results of all tests and assertions\n"+
         "  --json : output tap-parser events in JSON\n"+
         "  --tally: restrict output to root subtests + failures (default)\n"+
-        "  --tap  : output raw TAP text\n"
+        "  --tap  : output raw TAP text\n"+
+        "  --node-arg=<arg>: pass <arg> to node process in which test runs\n"
     );
     process.exit(0);
 }
@@ -228,16 +232,16 @@ function exitWithUserError(message) {
     process.exit(1);
 }
 
-function extractDashDashOptions(argv) {
-    var dashDashTerms = [];
+function extractPrefixedOptions(prefix, argv) {
+    var terms = [];
     var i = argv.length;
     while (--i >= 0) {
-        if (argv[i].startsWith('--')) {
-            dashDashTerms.push(argv[i].substr(2).toLowerCase());
+        if (argv[i].startsWith(prefix)) {
+            terms.push(argv[i].substr(prefix.length));
             argv.splice(i, 1);
         }
     }
-    return dashDashTerms;
+    return terms;
 }
 
 function extractStringOptions(argv, optionLetters) {
@@ -280,7 +284,10 @@ function makePrettyPrinter(reportClass) {
 
 function runNextFile() {
     // fork so can use IPC to communicate test numbers and bail-out
-    var child = fork(childPath, [tapPath], {env: childEnv});
+    var childOptions = { env: childEnv };
+    if (childNodeArgs.length > 0)
+        childOptions.execArgv = childNodeArgs;
+    var child = fork(childPath, [tapPath], childOptions);
     
     child.on('message', function (msg) {
         gotPulse = true;
