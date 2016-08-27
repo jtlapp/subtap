@@ -128,6 +128,7 @@ BaseReport.SYMBOL_FAIL = '✗';
 BaseReport.SYMNOL_GOOD_LINE = '→';
 BaseReport.SYMNOL_BAD_LINE = '✗';
 
+BaseReport.SYMBOL_SPACE = '·';
 BaseReport.SYMBOL_NEWLINE = "⏎";
 BaseReport.NEWLINE_SUB = BaseReport.SYMBOL_NEWLINE +"\n";
 
@@ -497,22 +498,34 @@ BaseReport.prototype._printInterleavedDiffs = function(
 BaseReport.prototype._printMultilineValue = function (
         styleID, indentLevel, typedValue)
 {
+    var value = typedValue.val;
     var leftMargin = (indentLevel + 1) * this._tabSize; // of indented value
     var resultsWidth = this._getResultsWidth(leftMargin);
     var yamlMark = ' |-';
-    if (typedValue.val[typedValue.val.length - 1] === "\n") {
+    if (value[value.length - 1] === "\n") {
         yamlMark = ' |';
-        typedValue.val = typedValue.val.substr(0, typedValue.val.length - 1);
+        value = value.substr(0, value.length - 1);
+    }
+    
+    if (typedValue.type === 'string') {
+        var match = value.match(/( +)((?:\x1b[^a-zA-Z]+[a-zA-Z])*)$/);
+        if (match) {
+            value = value.substr(0, value.length - match[0].length);
+            // make trailing spaces visible
+            value += BaseReport.SYMBOL_SPACE.repeat(match[1].length);
+            value += match[2]; // trailing escape sequences
+        }
     }
     
     this._maker.line(indentLevel, typedValue.label + yamlMark);
     this._maker.multiline(indentLevel + 1, indentLevel + 1,
-            this._maker.colorWrap(styleID, typedValue.val, resultsWidth));
+            this._maker.colorWrap(styleID, value, resultsWidth));
 };
 
 BaseReport.prototype._printSingleLineValue = function (
         styleID, indentLevel, typedValue)
 {
+    var value = typedValue.val;
     var label = typedValue.label +' ';
     var leftMargin = (indentLevel + 1) * this._tabSize; // of indented value
     var resultsWidth = this._getResultsWidth(leftMargin);
@@ -521,13 +534,13 @@ BaseReport.prototype._printSingleLineValue = function (
     if (this._styleMode > LineMaker.STYLE_MONOCHROME) {
         // make it easier to read short values shown on a background color
         if (!typedValue.quoted) { // quotes already space value from background
-            typedValue.val = ' '+ typedValue.val;
-            if (typedValue.val.length < firstLineWidth)
-                typedValue.val += this._color(styleID, ' '); // may have \x1b
+            value = ' '+ value;
+            if (value.length < firstLineWidth)
+                value += this._color(styleID, ' '); // may have \x1b
         }
     }
     this._maker.multiline(indentLevel, indentLevel + 1, label +
-            this._maker.colorWrap(styleID, typedValue.val, resultsWidth,
+            this._maker.colorWrap(styleID, value, resultsWidth,
                     resultsWidth - firstLineWidth));
 };
 
