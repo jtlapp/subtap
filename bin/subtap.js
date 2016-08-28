@@ -117,8 +117,8 @@ if (!_.isUndefined(stringOptions.w)) {
     if (!matches)
         exitWithUserError("-wM:N option requires two colon-separated integers");
     else {
-        stringOptions.minResultsWidth = matches[1];
-        stringOptions.minResultsMargin = matches[2];
+        stringOptions.minResultsWidth = parseInt(matches[1]);
+        stringOptions.minResultsMargin = parseInt(matches[2]);
         if (stringOptions.minResultsWidth < 2)
             exitWithUserError("-wM:N potion requires M >= 2");
     }
