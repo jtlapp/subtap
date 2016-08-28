@@ -6,6 +6,7 @@ BaseReport is the base class for reports to which the PrettyPrinter sends TAP ev
 
 var util = require('util');
 var yaml = require('js-yaml');
+var diff = require('diff');
 var xregexp = require('xregexp');
 var _ = require('lodash');
 
@@ -14,15 +15,29 @@ var callstack = require('../lib/callstack');
 
 //// PRIVATE CONSTANTS ////////////////////////////////////////////////////////
 
+var WANTED_WIDTH = "wanted: ".length;
+var LABEL_DIFFS = 'diffs:';
+var LABEL_NO_DIFFS = 'noDiffs:';
+var EMPH_LABELS = ['compare', 'diff', 'diffs'];
+var DIFF_NOTICE = "^ deltas change wanted into found";
+
 var REGEX_STRING_ESC = xregexp('["\\p{C}\\\\]', 'g');
 var REGEX_CANONICAL = new RegExp("(\r|\x1b\\[F|\x1b)", 'g');
 var REGEX_JS_TERM = "[_$a-zA-Z\xA0-\uFFFF][_$a-zA-Z0-9\xA0-\uFFFF]*";
 var REGEX_FUNCTION_SIG = new RegExp("^function *(?:"+ REGEX_JS_TERM +" *)?"+
         "\\( *(?:"+ REGEX_JS_TERM +"(?:, *"+ REGEX_JS_TERM +")* *)?\\) *\\{");
-var WANTED_WIDTH = "wanted: ".length;
-var EMPH_LABELS = ['diff', 'diffs'];
 
 // see https://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg
+// and https://en.wikipedia.org/wiki/ANSI_escape_code
+// 'bad' - style of text for incorrect results
+// 'fail' - style of text for names/descriptions of failed tests/assertions
+// 'fail-emph' - style of line for a failed root-most test name
+// 'found' - style of background for found value
+// 'good' - style of text for correct results corresponding to incorrect text
+// 'label' - style of text for de-emphasized YAML labels
+// 'pass' - style of text for names/descriptions of passed tests/assertions
+// 'same' - style of background for line that is same in found/wanted diffs
+// 'wanted' - style of background for wanted value
 
 var COLORMAP_16 = {
     'bad': '\x1b[31m', // dark red text
@@ -32,6 +47,7 @@ var COLORMAP_16 = {
     'good': '\x1b[32m', // dark green text
     'label': '\x1b[90m', // light gray text
     'pass': '\x1b[32m', // dark green text
+    'same': '\x1b[47m', // light gray background
     'wanted': '\x1b[106m' // bright cyan background
 };
 
@@ -43,6 +59,7 @@ var COLORMAP_256 = {
     'good': '\x1b[38;5;022m', // dark green text
     'label': '\x1b[38;5;242m', // gray text
     'pass': '\x1b[38;5;022m', // dark green text
+    'same': '\x1b[48;5;230m', // light yellow background
     'wanted': '\x1b[48;5;194m' // light green background
 };
 
@@ -108,6 +125,7 @@ function BaseReport(outputStream, options) {
         styleMode: options.styleMode,
         colorMap16: COLORMAP_16,
         colorMap256: COLORMAP_256,
+        continuation: BaseReport.SYMBOL_CONTINUED,
         writeFunc: function (text) {
             if (options.canonical)
                 text = self._canonicalize(text);
@@ -124,16 +142,19 @@ module.exports = BaseReport;
 
 //// PUBLIC CONSTANTS /////////////////////////////////////////////////////////
 
+// see https://en.wikibooks.org/wiki/Unicode/List_of_useful_symbols
+
 BaseReport.SYMBOL_PENDING = '-';
 BaseReport.SYMBOL_PASS = '✓';
 BaseReport.SYMBOL_FAIL = '✗';
 
-BaseReport.SYMNOL_GOOD_LINE = '→';
-BaseReport.SYMNOL_BAD_LINE = '✗';
+BaseReport.SYMBOL_GOOD_LINE = '-'; // '★';
+BaseReport.SYMBOL_BAD_LINE = '+'; // '✗';
 
 BaseReport.SYMBOL_SPACE = '·';
 BaseReport.SYMBOL_NEWLINE = "⏎";
 BaseReport.NEWLINE_SUB = BaseReport.SYMBOL_NEWLINE +"\n";
+BaseReport.SYMBOL_CONTINUED = '…';
 
 //// PUBLIC METHODS ///////////////////////////////////////////////////////////
 
@@ -250,32 +271,14 @@ BaseReport.prototype._createResult = function (label, property, value) {
     return result;
 };
 
-BaseReport.prototype._deemphRootLabels = function (text) {
-    var lines = text.split("\n");
-    var out = '';
-    for (var i = 0; i < lines.length; ++i) {
-        var line = lines[i];
-        if (line.length === 0 || line.charAt(0) === ' ')
-            out += line + "\n";
-        else {
-            var deemphLength = line.indexOf(':');
-            if (EMPH_LABELS.indexOf(line.substr(0, deemphLength)) >= 0)
-                out += line + "\n";
-            else {
-                ++deemphLength;
-                if (deemphLength + 2 <= line.length) {
-                    var c = line.charAt(deemphLength + 1);
-                    if (c === '|' || c === '>')
-                        deemphLength = line.length;
-                }
-                out += this._maker.color('label', line.substr(0, deemphLength));
-                if (deemphLength < line.length)
-                    out += line.substr(deemphLength);
-                out += "\n";
-            }
-        }
-    }
-    return out;
+BaseReport.prototype._dimRootLabels = function (text) {
+    var self= this;
+    return text.replace(/^([^: ]+):( *[|>][^\n]*)?/gm, function (match) {
+        var label = match.substring(0, match.indexOf(':'));
+        if (EMPH_LABELS.indexOf(label) >= 0)
+            return match;
+        return self._maker.color('label', match);
+    });
 };
 
 BaseReport.prototype._escapeString = function (
@@ -311,9 +314,9 @@ BaseReport.prototype._failedClosing = function (counts) {
         counts.failedAssertions +" of "+ counts.assertions +
                 " assertions";
     text = this._bold(this._color('fail', text));
-    this._maker.blankLine();
+    this._maker.blankLine(1);
     this._maker.line(0, text);
-    this._maker.blankLine();
+    this._maker.blankLine(1);
 };
 
 BaseReport.prototype._getResultsWidth = function (leftMargin) {
@@ -344,28 +347,28 @@ BaseReport.prototype._highlightDiff = function (
     typedValue.val = s;
 };
 
-BaseReport.prototype._highlightDiffs = function (actual, intent) {
+BaseReport.prototype._highlightDiffs = function (actual, expected) {
 
     // find the index of the first different position, if any
 
     var baseLength = actual.val.length;
-    if (baseLength > intent.val.length)
-        baseLength = intent.val.length;
+    if (baseLength > expected.val.length)
+        baseLength = expected.val.length;
     var i = 0;
-    while (i < baseLength && actual.val[i] === intent.val[i])
+    while (i < baseLength && actual.val[i] === expected.val[i])
         ++i;
         
     // return early if the values are the same
 
-    if (i === actual.val.length && i === intent.val.length)
+    if (i === actual.val.length && i === expected.val.length)
         return; // values are the same
     
     // highlight text from the point at which it differs
     
     if (i < actual.val.length)
         this._highlightDiff('found', 'bad', actual, i);
-    if (i < intent.val.length)
-        this._highlightDiff('wanted', 'good', intent, i);
+    if (i < expected.val.length)
+        this._highlightDiff('wanted', 'good', expected, i);
 };
 
 BaseReport.prototype._makeAssertion = function (assert) {
@@ -386,7 +389,15 @@ BaseReport.prototype._makeName = function (bullet, testInfo, color) {
     return text;
 };
 
-BaseReport.prototype._normalizeTypedValue = function (typedValue, mustQuote) {
+BaseReport.prototype._normalizeJSON = function (json) {
+    return json.replace(/^ *"[^" ]+" *:/gm, function (match) {
+        return match.replace(/"/g, ''); // remove quotes from property names
+    });
+};
+
+BaseReport.prototype._normalizeTypedValue = function (
+    typedValue, mustQuoteString, stringifyObject)
+{
     var value = typedValue.val;
     typedValue.quoted = false;
 
@@ -400,25 +411,43 @@ BaseReport.prototype._normalizeTypedValue = function (typedValue, mustQuote) {
     // escape string values, quoting them when required
     
     if (typedValue.type === 'string') {
-        if (mustQuote) {
+        if (mustQuoteString) {
             value = this._escapeString(value, true, "\\n");
             value = '"'+ value +'"';
             typedValue.quoted = true;
             typedValue.multiline = false;
         }
-        else
+        else {
             value = this._escapeString(value, false, BaseReport.NEWLINE_SUB);
+            var match = value.match(/ +$/);
+            if (match) {
+                // make trailing spaces visible when not followed by newline
+                value = value.substr(0, value.length - match[0].length);
+                value += BaseReport.SYMBOL_SPACE.repeat(match[0].length);
+            }
+        }
     }
         
-    // represent values as strings, truncating functions within JSON
+    // normalize object functions, if any, and represent object as a string
+    // if so requested
 
-    else {
-        if (typedValue.type === 'object')
-            value = JSON.stringify(value, this._truncateFunction, this._indent);
+    else if (typedValue.type === 'object') {
+        value = JSON.stringify(value, this._truncateFunction, this._indent);
+        if (stringifyObject) {
+            value = this._normalizeJSON(value);
+            typedValue.multiline = (value.indexOf("\n") >= 0);
+        }
         else
-            value = String(value);
+            value = JSON.parse(value); // functions now normalized
+    }
+    
+    // represent all remaining object types as strings
+    
+    else {
+        value = String(value);
         typedValue.multiline = (value.indexOf("\n") >= 0);
     }
+
     typedValue.val = value;
 };
 
@@ -428,9 +457,18 @@ BaseReport.prototype._passedClosing = function (counts) {
         counts.rootSubtests +" root subtests, all "+
         counts.assertions +" assertions";
     text = this._bold(this._color('pass', text));
-    this._maker.blankLine();
+    this._maker.blankLine(1);
     this._maker.line(0, text);
-    this._maker.blankLine();
+    this._maker.blankLine(1);
+};
+
+BaseReport.prototype._printDiffLines = function(
+        indentLevel, styleID, lineStart, text)
+{
+    var leftMargin = indentLevel * this._tabSize; // of indented value
+    var resultsWidth = this._getResultsWidth(leftMargin);
+    this._maker.multiline(indentLevel, indentLevel,
+            this._maker.colorWrap(styleID, text, resultsWidth, lineStart));
 };
 
 BaseReport.prototype._printDiffs = function (indentLevel, assert) {
@@ -438,62 +476,73 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
     // retrieve information about actual and intended results
     
     var actual = this._createResult('found', 'found', assert.diag.found);
-    var intent = null;
+    var expected = null;
     if (!_.isUndefined(assert.diag.wanted))
-        intent = this._createResult('wanted', 'wanted', assert.diag.wanted);
+        expected = this._createResult('wanted', 'wanted', assert.diag.wanted);
     else if (!_.isUndefined(assert.diag.doNotWant)) {
-        intent = this._createResult('notWanted', 'doNotWant',
+        expected = this._createResult('notWanted', 'doNotWant',
                  assert.diag.doNotWant);
     }
-
-    // normalize found and wanted values to strings
-    
     var mustQuote = (actual.type === 'string' && !actual.multiline ||
-            intent.type === 'string' && !intent.multiline);
-    this._normalizeTypedValue(actual, mustQuote);
-    this._normalizeTypedValue(intent, mustQuote);
+            expected.type === 'string' && !expected.multiline);
 
-    // output the value differences in the appropriate display format
+    // output actual value by itself when there is no intended value
 
-    if (!intent) {
+    if (!expected) {
+        this._normalizeTypedValue(actual, mustQuote, true);
+        this._normalizeTypedValue(expected, mustQuote, true);
+        
         if (actual.multiline)
             this._printMultilineValue('found', indentLevel, actual);
         else
             this._printSingleLineValue('found', indentLevel, actual);
     }
-    else if (this._interleaveDiffs && actual.type === intent.type &&
-            (actual.type === 'string' || actual.type === 'object')) {
-        this._printInterleavedDiffs(indentLevel, actual, intent);
+    
+    // output interleaved lines for strings and objects when requested
+    
+    else if (this._interleaveDiffs && actual.type === expected.type &&
+            (actual.type === 'string' || actual.type === 'object'))
+    {
+        this._normalizeTypedValue(actual, false, false);
+        this._normalizeTypedValue(expected, false, false);
+
+        this._printInterleavedDiffs(indentLevel, actual, expected);
     }
+    
+    // otherwise output actual and intended values separately
+    
     else {
-        if (actual.type === intent.type &&
+        this._normalizeTypedValue(actual, mustQuote, true);
+        this._normalizeTypedValue(expected, mustQuote, true);
+
+        if (actual.type === expected.type &&
                 (actual.type === 'string' || actual.type === 'object'))
-            this._highlightDiffs(actual, intent);
+            this._highlightDiffs(actual, expected);
         
         if (actual.multiline)
             this._printMultilineValue('found', indentLevel, actual);
         else {
-            if (!intent.multiline) {
-                var labelDiff = actual.label.length - intent.label.length;
+            if (!expected.multiline) {
+                var labelDiff = actual.label.length - expected.label.length;
                 if (labelDiff < 0)
                     actual.label += this._maker.spaces(-labelDiff);
                 else if (labelDiff > 0)
-                    intent.label += this._maker.spaces(labelDiff);
+                    expected.label += this._maker.spaces(labelDiff);
             }
             this._printSingleLineValue('found', indentLevel, actual);
         }
 
-        if (intent.multiline)
-            this._printMultilineValue('wanted', indentLevel, intent);
+        if (expected.multiline)
+            this._printMultilineValue('wanted', indentLevel, expected);
         else
-            this._printSingleLineValue('wanted', indentLevel, intent);
+            this._printSingleLineValue('wanted', indentLevel, expected);
     }
         
     // delete values from diagnostics so they aren't printed in the YAML
     
     delete(assert.diag[actual.property]);
-    if (intent)
-        delete(assert.diag[intent.property]);
+    if (expected)
+        delete(assert.diag[expected.property]);
 };
 
 BaseReport.prototype._printFailedAssertion = function (
@@ -515,16 +564,59 @@ BaseReport.prototype._printFailedAssertion = function (
             indent: this._tabSize,
             lineWidth: this._minResultsMargin - indentLevel*this._tabSize
         });
-        diagText = this._deemphRootLabels(diagText);
+        diagText = this._dimRootLabels(diagText);
         this._maker.multiline(indentLevel, indentLevel, diagText);
+        this._maker.blankLine(1);
     }
 };
 
 BaseReport.prototype._printInterleavedDiffs = function(
-    indentLevel, actual, intent, leftMargin)
+    indentLevel, actual, expected)
 {
-    // TBD
-    console.log("*** interleaving not yet implemented ***");
+    // compute deltas as differences in string representation
+    
+    var deltas; // deltas are expressed in terms of correcting actual.val
+    if (actual.type === 'object') // === expected.type
+        deltas = diff.diffJson(actual.val, expected.val);
+    else {
+        if (actual.val === '' && expected.val === '') {
+            // skip out with a shorthand representation
+            return this._maker.line(indentLevel, LABEL_NO_DIFFS +' '+
+                        this._maker.color('same', '""'));
+        }
+        deltas = diff.diffLines(actual.val, expected.val);
+    }
+    
+    // Produce a proper YAML trailing newline marker, even though it's possible
+    // that a prior diff line also does not end with a newline. The presence of
+    // a newline is instead indicated via BaseReport.SYMBOL_NEWLINE.
+
+    var value = deltas[deltas.length - 1].value;
+    var yamlMark = (value[value.length - 1] === "\n" ? ' |' : ' |-');
+    this._maker.line(indentLevel++, LABEL_DIFFS + yamlMark);
+    
+    // Print the line differences in the string representations.
+    
+    for (var i = 0; i < deltas.length; ++i) {
+        var delta = deltas[i];
+        value = delta.value;
+        if (actual.type === 'object') // === expected.type
+            value = this._normalizeJSON(value);
+        if (delta.removed) {
+            this._printDiffLines(indentLevel, 'wanted',
+                      BaseReport.SYMBOL_GOOD_LINE +' ', value);
+        }
+        else if (delta.added) {
+            this._printDiffLines(indentLevel, 'found',
+                      BaseReport.SYMBOL_BAD_LINE +' ', value);
+        }
+        else
+            this._printDiffLines(indentLevel, 'same', '  ', value);
+    }
+    
+    // Print a note explaining the notation.
+    
+    this._maker.line(indentLevel, this._maker.color('label', DIFF_NOTICE));
 };
 
 BaseReport.prototype._printMultilineValue = function (
@@ -533,25 +625,11 @@ BaseReport.prototype._printMultilineValue = function (
     var value = typedValue.val;
     var leftMargin = (indentLevel + 1) * this._tabSize; // of indented value
     var resultsWidth = this._getResultsWidth(leftMargin);
-    var yamlMark = ' |-';
-    if (value[value.length - 1] === "\n") {
-        yamlMark = ' |';
-        value = value.substr(0, value.length - 1);
-    }
-    
-    if (typedValue.type === 'string') {
-        var match = value.match(/( +)((?:\x1b[^a-zA-Z]+[a-zA-Z])*)$/);
-        if (match) {
-            value = value.substr(0, value.length - match[0].length);
-            // make trailing spaces visible
-            value += BaseReport.SYMBOL_SPACE.repeat(match[1].length);
-            value += match[2]; // trailing escape sequences
-        }
-    }
+    var yamlMark = (value[value.length - 1] === "\n" ? ' |' : ' |-');
+    var text = this._maker.colorWrap(styleID, value, resultsWidth);
     
     this._maker.line(indentLevel, typedValue.label + yamlMark);
-    this._maker.multiline(indentLevel + 1, indentLevel + 1,
-            this._maker.colorWrap(styleID, value, resultsWidth));
+    this._maker.multiline(indentLevel + 1, indentLevel + 1, text);
 };
 
 BaseReport.prototype._printSingleLineValue = function (
@@ -572,8 +650,8 @@ BaseReport.prototype._printSingleLineValue = function (
         }
     }
     this._maker.multiline(indentLevel, indentLevel + 1, label +
-            this._maker.colorWrap(styleID, value, resultsWidth,
-                    resultsWidth - firstLineWidth));
+        this._maker.colorWrap(styleID, value, resultsWidth, '',
+                resultsWidth - firstLineWidth));
 };
 
 BaseReport.prototype._printTestContext = function (subtestStack) {
