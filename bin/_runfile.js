@@ -18,9 +18,12 @@ var tapSynonyms = require(path.resolve(tapPath, '../../lib/synonyms.js'));
 // these are the object types that the 'deeper' module explicitly handles
 var IGNORED_OBJECT_TYPES = [ 'Buffer', 'Date', 'Object', 'RegExp' ];
 
+var REGEX_SUBSET_RANGES = /\d+\.\.\d+|\d+/g;
+
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
-var selectedTest; // number of single test to run, or 0 to run all tests
+    // array of functions returning true given a test number in its range
+var testSelectors = null; 
 var testFileRegex; // regex for pulling test file and line number from Error
 var maxFailedTests; // max number of failed tests allowed in parent run
 var logExceptions; // whether to log exceptions in TAP or end test run
@@ -42,8 +45,7 @@ tap.test = function subtapRootSubtest(name, extra, cb, deferred) {
         extra = {};
     }
     if (!deferred) { // if initial registration
-        ++testNumber;
-        if (selectedTest !== false && testNumber !== selectedTest)
+        if (!isSelectedTest(++testNumber))
             return;
 
         name = '['+ testNumber +'] '+ name;
@@ -86,10 +88,11 @@ tap.pipe(new Writable({
 process.on('message', function (config) {
     testNumber = config.priorTestNumber;
     testFileRegex = new RegExp(config.testFileRegexStr);
-    selectedTest = config.selectedTest;
     failedTests = config.failedTests;
     maxFailedTests = config.maxFailedTests;
     logExceptions = config.logExceptions;
+    if (config.selectedTests !== '')
+        selectTests(config.selectedTests);
     
     runTest(function() {
         require(config.filePath);
@@ -151,6 +154,16 @@ function installTypedAsserts(t) {
     installAssertSynonyms(t, 'strictNotSame');
 }
 
+function isSelectedTest(testNumber) {
+    if (testSelectors === null)
+        return true;
+    for (var i = 0; i < testSelectors.length; ++i) {
+        if (testSelectors[i](testNumber))
+            return true;
+    }
+    return false;
+}
+
 function runTest(testFunc, allowExceptionLogging) {
     if (allowExceptionLogging && logExceptions)
         return testFunc();
@@ -164,6 +177,19 @@ function runTest(testFunc, allowExceptionLogging) {
         });
         exiting = true;
     }
+}
+
+function selectTests(selectedTests) {
+    testSelectors = [];
+    var matches = selectedTests.match(REGEX_SUBSET_RANGES);
+    matches.forEach(function (range) {
+        var endPoints = range.match(/\d+/g);
+        var start = parseInt(endPoints[0]);
+        var end = (endPoints.length > 1 ? parseInt(endPoints[1]) : start);
+        testSelectors.push(function (testNumber) {
+            return (testNumber >= start && testNumber <= end);
+        });
+    });
 }
 
 function tearDownTest() {

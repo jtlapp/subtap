@@ -20,6 +20,8 @@ var callStack = require("../lib/call_stack");
 
 var OUTPUT_FORMATS = [ 'all', 'fail', 'json', 'tally', 'tap' ];
 var DEFAULT_OUTPUT_FORMAT = 'tally';
+var REGEX_VALID_SUBSET = /^\d+(\.\.\d+)?(,(\d+(\.\.\d+)?))*$/;
+var REGEX_RANGE_ENDS = /\d+(?!\.)/g;
 
 //// STATE ////////////////////////////////////////////////////////////////////
 
@@ -34,7 +36,7 @@ var timer; // heartbeat timer monitoring child activity
 
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
-// Parse command line arguments
+// Parse command line arguments, displaying help if requested.
 
 var argv = process.argv.slice(2);
 var minimistConfig = {
@@ -47,8 +49,8 @@ var minimistConfig = {
         r: 'run',
         t: 'timeout'
     },
-    boolean: [ 'b', 'c', 'e', 'f', 'h', 'r' ],
-    string: [ 'diffs', 'node-arg', 'width' ],
+    boolean: [ 'b', 'c', 'e', 'f', 'h' ],
+    string: [ 'diffs', 'node-arg', 'r', 'width' ],
     default: {
         diffs: 'BCU', // differences format
         t: 3000, // heartbeat timeout millis
@@ -60,6 +62,11 @@ var options = minimist(argv, minimistConfig);
 // console.log(JSON.stringify(options, null, "  "));
 // process.exit(0);
 
+if (options.help) {
+    require("../lib/help");
+    process.exit(0);
+}
+
 optionTools.keepLastOfDuplicates(options, ['node-arg']);
 optionTools.applyBooleanOffSwitch(options, minimistConfig);
 var outputFormat = optionTools.lastOfMutuallyExclusive(argv, OUTPUT_FORMATS);
@@ -68,7 +75,7 @@ if (outputFormat === null)
 
 // Validate argument values generically where possible
 
-['e', 'f', 'h'].forEach(function (option) {
+['e', 'f'].forEach(function (option) {
     if (!_.isBoolean(options[option])) {
         exitWithUserError(
             "-"+ option +" is a boolean switch that doesn't take a value");
@@ -86,13 +93,6 @@ if (outputFormat === null)
     if (!_.isInteger(options[option]))
         exitWithUserError("-"+ option +" must take an integer value");
 });
-
-// Display help if requested
-
-if (options.help) {
-    require("../lib/help");
-    process.exit(0);
-}
 
 // Get color mode and whether canonicalizing output
 
@@ -149,11 +149,25 @@ var colorDiffText = optionTools.getFlag(diffFlags, 'C', true);
 var interleaveDiffs = optionTools.getFlag(diffFlags, 'I', false);
 var underlineFirstDiff = optionTools.getFlag(diffFlags, 'U', true);
 
-// Validate the tests to run
+// Validate the tests to run and determine last test number selected
     
-var selectedTest = options.run;
-if (selectedTest === 0 || selectedTest === true)
-    exitWithUserError("-r option requires a non-zero test number (e.g. -r42)");
+var lastSelectedTest = 0;
+if (_.isUndefined(options.run))
+    options.run = '';
+else {
+    if (!REGEX_VALID_SUBSET.test(options.run)) {
+        exitWithUserError("-r requires one or more comma-delimited numbers "+
+                "or ranges (\"N..M\")");
+    }
+    var endRanges = options.run.match(REGEX_RANGE_ENDS);
+    endRanges.forEach(function (endRange) {
+        var selectedTest = parseInt(endRange);
+        if (selectedTest === 0)
+            exitWithUserError("subtest number 0 is not valid in -r");
+        if (selectedTest > lastSelectedTest)
+            lastSelectedTest = selectedTest;
+    });
+}
     
 //// TEST RUNNER //////////////////////////////////////////////////////////////
 
@@ -280,7 +294,7 @@ function runNextFile() {
                 child.send({
                     priorTestNumber: testNumber,
                     testFileRegexStr: testFileRegexStr,
-                    selectedTest: selectedTest,
+                    selectedTests: options.run,
                     failedTests: failedTests,
                     maxFailedTests: maxFailedTests,
                     logExceptions: options['log-exceptions'],
@@ -320,8 +334,14 @@ function runNextFile() {
                 return runNextFile();
             if (testNumber === 0)
                 exitWithUserError("no subtests found");
-            if (selectedTest !== false && selectedTest > testNumber)
-                exitWithUserError("test "+ selectedTest +" not found");
+            if (lastSelectedTest > 0 && lastSelectedTest > testNumber) {
+                var range;
+                if (lastSelectedTest === testNumber + 1)
+                    range = " "+ lastSelectedTest;
+                else
+                    range = "s "+ (testNumber + 1) +".."+ lastSelectedTest;
+                exitWithUserError("root subtest"+ range +" not found");
+            }
         }
         printer.end();
     });
