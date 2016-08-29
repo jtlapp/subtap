@@ -52,7 +52,7 @@ var minimistConfig = {
     boolean: [ 'b', 'c', 'e', 'f', 'h' ],
     string: [ 'diffs', 'node-arg', 'r', 'width' ],
     default: {
-        diffs: 'BCU', // differences format
+        diffs: 'BCR', // differences format
         t: 3000, // heartbeat timeout millis
         tab: 2, // tab size
         width: '20:80' // <minimum width>:<minimum margin>
@@ -140,14 +140,14 @@ else {
 // Validate and retrieve the difference indication flags
 
 var diffFlags = options.diffs.toUpperCase();
-if (!/^[BCIU]*$/.test(diffFlags)) {
+if (!/^[BCIR]*$/.test(diffFlags)) {
     exitWithUserError(
-            "--diffs flags must be zero or more of the characters BCIU");
+            "--diffs flags must be zero or more of the characters BCIR");
 }
 var boldDiffText = optionTools.getFlag(diffFlags, 'B', true);
 var colorDiffText = optionTools.getFlag(diffFlags, 'C', true);
 var interleaveDiffs = optionTools.getFlag(diffFlags, 'I', false);
-var underlineFirstDiff = optionTools.getFlag(diffFlags, 'U', true);
+var reverseFirstDiff = optionTools.getFlag(diffFlags, 'R', true);
 
 // Validate the tests to run and determine last test number selected
     
@@ -271,7 +271,7 @@ function makePrettyPrinter(reportClass) {
         funcs: options['full-functions'],
         boldDiffText: boldDiffText,
         colorDiffText: colorDiffText,
-        underlineFirstDiff: underlineFirstDiff,
+        reverseFirstDiff: reverseFirstDiff,
         interleaveDiffs: interleaveDiffs,
         canonical: canonical
     }));

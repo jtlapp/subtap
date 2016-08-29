@@ -72,7 +72,7 @@ var COLORMAP_256 = {
 // _showFunctionSource - whether to output entire source of functions
 // _boldDiffText - whether to make the found/wanted text that differs bold
 // _colorDiffText - whether to color the found/wanted text that differs
-// _underlineFirstDiff - whether to underline the first character that differs between found and wanted text
+// _reverseFirstDiff - whether to reverse-video the first character that differs between found and wanted text
 // _interleaveDiffs - whether to interleave differing found/wanted lines
 // _maker - instance of LineMaker used for formatting output
 // _indent - string of spaces by which to indent each JSON nesting
@@ -98,7 +98,7 @@ var COLORMAP_256 = {
  *   - showFunctionSource: whether to output entire source of functions found in result differences (defaults to false)
  *   - boldDiffText: whether to make the found/wanted text that differs bold (defaults to false)
  *   - colorDiffText: whether to color the found/wanted text that differs
- *   - underlineFirstDiff: whether to underline the first character that differs between found and wanted text
+ *   - reverseFirstDiff: whether to reverse-video the first character that differs between found and wanted text
  *   - interleaveDiffs: whether to interleave differing found/wanted lines
  *   - canonical: whether to visibly render control codes in output (defaults to false)
  *   - closeStream: whether to call end() on the output stream (defaults to false, which is usual for stdout)
@@ -115,7 +115,7 @@ function BaseReport(outputStream, options) {
     this._showFunctionSource = options.showFunctionSource || false;
     this._boldDiffText = options.boldDiffText,
     this._colorDiffText = options.colorDiffText,
-    this._underlineFirstDiff = options.underlineFirstDiff,
+    this._reverseFirstDiff = options.reverseFirstDiff,
     this._interleaveDiffs = options.interleaveDiffs,
     this._closeStream = options.closeStream || false;
     
@@ -336,9 +336,12 @@ BaseReport.prototype._highlightDiff = function (
         quote = diff[diff.length - 1];
         diff = diff.substr(0, diff.length - 1);
     }
-    if (diff.length > 0 && this._underlineFirstDiff) {
-        s += this._colorDiff(styleID, this._maker.style('underline', diff[0]));
-        diff = this._color(bkgStyleID, diff.substr(1));
+    if (diff.length > 0 && this._reverseFirstDiff) {
+        var firstChar = diff[0];
+        if (firstChar === "\\")
+            firstChar += diff[1];
+        s += this._colorDiff(styleID, this._maker.style('reverse', firstChar));
+        diff = this._color(bkgStyleID, diff.substr(firstChar.length));
     }
     if (diff.length > 0)
         s += this._colorDiff(styleID, diff);
@@ -425,6 +428,9 @@ BaseReport.prototype._normalizeTypedValue = function (
                 value = value.substr(0, value.length - match[0].length);
                 value += BaseReport.SYMBOL_SPACE.repeat(match[0].length);
             }
+            // a trailing BaseReport.SYMBOL_NEWLINE indicates a trailing LF
+            if (value[value.length - 1] === "\n")
+                value = value.substr(0, value.length - 1);
         }
     }
         
@@ -577,23 +583,22 @@ BaseReport.prototype._printInterleavedDiffs = function(
     
     var deltas; // deltas are expressed in terms of correcting actual.val
     if (actual.type === 'object') // === expected.type
-        deltas = diff.diffJson(actual.val, expected.val);
+        deltas = diff.diffJson(expected.val, actual.val);
     else {
         if (actual.val === '' && expected.val === '') {
             // skip out with a shorthand representation
             return this._maker.line(indentLevel, LABEL_NO_DIFFS +' '+
                         this._maker.color('same', '""'));
         }
-        deltas = diff.diffLines(actual.val, expected.val);
+        deltas = diff.diffLines(expected.val, actual.val);
     }
     
-    // Produce a proper YAML trailing newline marker, even though it's possible
-    // that a prior diff line also does not end with a newline. The presence of
-    // a newline is instead indicated via BaseReport.SYMBOL_NEWLINE.
+    // Place a proper YAML trailing LF marker, even though it's possible
+    // that a prior diff line also does not end with a LF. The presence
+    // of a LF is instead indicated via BaseReport.SYMBOL_NEWLINE.
 
     var value = deltas[deltas.length - 1].value;
-    var yamlMark = (value[value.length - 1] === "\n" ? ' |' : ' |-');
-    this._maker.line(indentLevel++, LABEL_DIFFS + yamlMark);
+    this._maker.line(indentLevel++, LABEL_DIFFS + this._yamlMark(value));
     
     // Print the line differences in the string representations.
     
@@ -625,10 +630,9 @@ BaseReport.prototype._printMultilineValue = function (
     var value = typedValue.val;
     var leftMargin = (indentLevel + 1) * this._tabSize; // of indented value
     var resultsWidth = this._getResultsWidth(leftMargin);
-    var yamlMark = (value[value.length - 1] === "\n" ? ' |' : ' |-');
     var text = this._maker.colorWrap(styleID, value, resultsWidth);
     
-    this._maker.line(indentLevel, typedValue.label + yamlMark);
+    this._maker.line(indentLevel, typedValue.label + this._yamlMark(value));
     this._maker.multiline(indentLevel + 1, indentLevel + 1, text);
 };
 
@@ -673,4 +677,10 @@ BaseReport.prototype._truncateFunction = function (jsonName, value) {
             !REGEX_FUNCTION_SIG.test(value))
         return value;
     return _.trimEnd(value.substr(0, value.indexOf("{")));
+};
+
+BaseReport.prototype._yamlMark = function (value) {
+    if (value[value.length - 1] === BaseReport.SYMBOL_NEWLINE)
+        return ' |';
+    return ' |-';
 };
