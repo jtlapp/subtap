@@ -5,7 +5,7 @@ Note: All monkey patches of tap should be done within this file so that they get
 ******************************************************************************/
 
 //// MODULES //////////////////////////////////////////////////////////////////
-/**/ console.log("*** argv "+ JSON.stringify(process.argv));
+
 var path = require('path');
 var Writable = require('stream').Writable;
 
@@ -23,7 +23,7 @@ var IGNORED_OBJECT_TYPES = [ 'Buffer', 'Date', 'Object', 'RegExp' ];
 var selectedTest; // number of single test to run, or 0 to run all tests
 var testFileRegex; // regex for pulling test file and line number from Error
 var maxFailedTests; // max number of failed tests allowed in parent run
-var embedExceptions; // whether to embed exceptions in TAP or end test run
+var logExceptions; // whether to log exceptions in TAP or end test run
 
 //// STATE ////////////////////////////////////////////////////////////////////
 
@@ -89,7 +89,7 @@ process.on('message', function (config) {
     selectedTest = config.selectedTest;
     failedTests = config.failedTests;
     maxFailedTests = config.maxFailedTests;
-    embedExceptions = config.embedExceptions;
+    logExceptions = config.logExceptions;
     
     runTest(function() {
         require(config.filePath);
@@ -151,8 +151,8 @@ function installTypedAsserts(t) {
     installAssertSynonyms(t, 'strictNotSame');
 }
 
-function runTest(testFunc, allowExceptionEmbedding) {
-    if (allowExceptionEmbedding && embedExceptions)
+function runTest(testFunc, allowExceptionLogging) {
+    if (allowExceptionLogging && logExceptions)
         return testFunc();
     try {
         return testFunc();

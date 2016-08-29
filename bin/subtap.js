@@ -28,15 +28,15 @@ var DEFAULT_OUTPUT_FORMAT = 'tally';
 var argv = process.argv.slice(2);
 var minimistConfig = {
     alias: {
-        b: 'bailOnFail',
-        c: 'colorMode',
-        e: 'embedExceptions',
-        f: 'showFunctionSource',
+        b: 'bail',
+        c: 'color',
+        e: 'log-exceptions',
+        f: 'full-functions',
         h: 'help',
-        n: 'selectedTest',
-        t: 'timeoutMillis'
+        r: 'run',
+        t: 'timeout'
     },
-    boolean: [ 'b', 'c', 'e', 'f', 'h', 'n' ],
+    boolean: [ 'b', 'c', 'e', 'f', 'h', 'r' ],
     string: [ 'diffs', 'node-arg', 'width' ],
     default: {
         t: 3000, // heartbeat timeout millis
@@ -77,7 +77,7 @@ OUTPUT_FORMATS.forEach(function (name) {
 if (outputFormat === null)
     outputFormat = 'tally';
 
-var colorMode = options.colorMode;
+var colorMode = options.color;
 if (colorMode === true)
     exitWithUserError("-cN option requires a color mode number (e.g. -c1)");
 if (colorMode === false)
@@ -85,34 +85,35 @@ if (colorMode === false)
 if (!(colorMode <= 2 || colorMode >= 10 && colorMode <= 12))
     exitWithUserError("-cN option requires a valid color mode (-h for help)");
 
-// colorMode + 10 = secret canonical output mode for self-testing
 var canonical = false;
 if (colorMode >= 10) {
     canonical = true;
     colorMode -= 10;
 }
 
-var selectedTest = options.selectedTest;
+var selectedTest = options.run;
 if (selectedTest === 0 || selectedTest === true)
-    exitWithUserError("-n option requires a non-zero test number (e.g. -n42)");
+    exitWithUserError("-r option requires a non-zero test number (e.g. -r42)");
 
 var maxFailedTests = 0; // assume no maximum
-if (_.isNumber(options.bailOnFail)) {
-    maxFailedTests = options.bailOnFail;
-    options.bailOnFail = false;
+if (_.isNumber(options.bail)) {
+    maxFailedTests = options.bail;
+    options.bail = false;
 }
 
 if (options.tab === true || options.tab === 0)
     exitWithUserError("--tab N option requires a tab size N >= 1");
     
 var matches = options.width.match(/^(\d+):(\d+)$/);
-if (!matches)
-    exitWithUserError("-wM:N option requires two colon-separated integers");
+if (!matches) {
+    exitWithUserError(
+            "--width=M:N option requires two colon-separated integers");
+}
 else {
     options.minResultsWidth = parseInt(matches[1]);
     options.minResultsMargin = parseInt(matches[2]);
     if (options.minResultsWidth < 2)
-        exitWithUserError("-wM:N potion requires M >= 2");
+        exitWithUserError("--width=M:N option requires M >= 2");
 }
 
 var diffFlags = options.diffs.toUpperCase();
@@ -137,7 +138,7 @@ var timer; // heartbeat timer monitoring child activity
 var cwd = process.cwd();
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
 var childPath = path.resolve(__dirname, "_runfile.js");
-var childEnv = (options.bailOnFail ? { TAP_BAIL: '1' } : {});
+var childEnv = (options.bail ? { TAP_BAIL: '1' } : {});
 
 // Locate the installation of the tap module that these test files will use. We need to tweak loads of this particular installation.
 
@@ -231,7 +232,7 @@ function makePrettyPrinter(reportClass) {
         minResultsWidth: options.minResultsWidth,
         minResultsMargin: options.minResultsMargin,
         truncateTraceAtPath: childPath,
-        showFunctionSource: options.showFunctionSource,
+        funcs: options['full-functions'],
         boldDiffText: boldDiffText,
         colorDiffText: colorDiffText,
         underlineFirstDiff: underlineFirstDiff,
@@ -260,7 +261,7 @@ function runNextFile() {
                     selectedTest: selectedTest,
                     failedTests: failedTests,
                     maxFailedTests: maxFailedTests,
-                    embedExceptions: options.embedExceptions,
+                    logExceptions: options['log-exceptions'],
                     filePath: filePaths[fileIndex]
                 });
                 break;
@@ -304,7 +305,7 @@ function runNextFile() {
     });
     
     gotPulse = true;
-    if (options.timeoutMillis > 0)
+    if (options.timeout > 0)
         awaitHeartbeat(child);
 }
 
@@ -316,12 +317,12 @@ function awaitHeartbeat(child) {
             if (filePath.indexOf(cwd) === 0)
                 filePath = filePath.substr(cwd.length + 1);
             writeErrorMessage(filePath +" timed out after "+
-                    options.timeoutMillis +" millis of inactivity");
+                    options.timeout +" millis of inactivity");
             process.exit(1);
         }
         gotPulse = false;
         awaitHeartbeat(child);
-    }, options.timeoutMillis);
+    }, options.timeout);
 }
 
 function writeErrorMessage(message) {
