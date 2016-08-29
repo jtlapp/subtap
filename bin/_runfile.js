@@ -5,7 +5,7 @@ Note: All monkey patches of tap should be done within this file so that they get
 ******************************************************************************/
 
 //// MODULES //////////////////////////////////////////////////////////////////
-
+/**/ console.log("*** argv "+ JSON.stringify(process.argv));
 var path = require('path');
 var Writable = require('stream').Writable;
 

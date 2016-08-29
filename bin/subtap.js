@@ -13,73 +13,58 @@ var fork = require('child_process').fork;
 var _ = require('lodash');
 
 var subtap = require("../");
-var callstack = require("../lib/callstack");
+var optionTools = require("../lib/option_tools");
+var callStack = require("../lib/call_stack");
 
 //// CONSTANTS ////////////////////////////////////////////////////////////////
 
 var OUTPUT_FORMATS = [ 'all', 'fail', 'json', 'tally', 'tap' ];
+var DEFAULT_OUTPUT_FORMAT = 'tally';
 
-//// ARGUMENT CONFIGURATION ///////////////////////////////////////////////////
+//// CONFIGURATION ////////////////////////////////////////////////////////////
+
+// Parse command line arguments and print help if requested
 
 var argv = process.argv.slice(2);
 var minimistConfig = {
     alias: {
         b: 'bailOnFail',
         c: 'colorMode',
-        d: 'diffFlags',
         e: 'embedExceptions',
         f: 'showFunctionSource',
         h: 'help',
-        i: 'tabSize',
         n: 'selectedTest',
-        t: 'timeoutMillis',
-        w: 'minWidthAndMargin'
+        t: 'timeoutMillis'
     },
-    boolean: [ 'b', 'c', 'e', 'f', 'h', 'i', 'n' ],
-    string: [ 'd', 'w', 'node-arg' ],
+    boolean: [ 'b', 'c', 'e', 'f', 'h', 'n' ],
+    string: [ 'diffs', 'node-arg', 'width' ],
     default: {
-        i: 2, // tab size
         t: 3000, // heartbeat timeout millis
-        d: 'BCU', // differences format
-        w: '20:80' // minimum width : minimum margin
+        tab: 2, // tab size
+        diffs: 'BCU', // differences format
+        width: '20:80' // <minimum width>:<minimum margin>
     }
 };
 var options = minimist(argv, minimistConfig);
-applyBooleanOffSwitches(options, minimistConfig);
+// console.log(JSON.stringify(options, null, "  "));
+// process.exit(0);
 
 if (options.help) {
-    console.log(
-        "subtap [options] [file-patterns]\n"+ // TBD: say more
-        "(only works with JS files that require 'tap')\n"+
-        "\n"+
-        "options:\n"+
-        "  -b     : bail on first assertion to fail\n"+
-        "  -bN    : bail after the N root subtests fail\n"+
-        "  -c0    : no color, emphasis, or other ANSI codes\n"+
-        "  -c1    : monochrome mode, emphasis allowed\n"+
-        "  -c2    : multicolor mode (default)\n"+
-        "  -d     : don't indicate differences in values\n"+
-        "  -d BCIU: found/wanted diff flags (default BCU)\n"+
-        "           - (B) bold the different text\n"+
-        "           - (C) color the different text\n"+
-        "           - (I) interleave different lines\n"+
-        "           - (U) underline the first differingn character\n"+
-        "  -e     : catch and embed subtest exceptions in output\n"+
-        "  -f     : output source code of functions in found/wanted values\n"+
-        "  -h     : show this help information\n"+
-        "  -iN    : indent each level of nesting by N spaces (default 2)\n"+
-        "  -nN    : run only test number N\n"+
-        "  -tN    : timeout for inactivity after N millisecs; 0 = off (default 3000)\n"+
-        "  -w M:N : results area min width (M), min wrap column (N) (default 20:80)\n"+ 
-        "  --fail : restrict output to tests + assertions that fail\n"+
-        "  --all  : output results of all tests and assertions\n"+
-        "  --json : output tap-parser events in JSON\n"+
-        "  --tally: restrict output to root subtests + failures (default)\n"+
-        "  --tap  : output raw TAP text\n"+
-        "  --node-arg arg: pass arg to node process in which test runs\n"
-    );
+    require("../lib/help");
     process.exit(0);
 }
+
+optionTools.keepLastOfDuplicates(options, ['node-arg']);
+optionTools.applyBooleanOffSwitch(options, minimistConfig);
+var outputFormat =
+        optionTools.lastOfMutuallyExclusive(options, argv, OUTPUT_FORMATS);
+if (outputFormat === null)
+    outputFormat = DEFAULT_OUTPUT_FORMAT;
+    
+// Validate arguments generically where possible
+
+
+    
 
 var outputFormat = null;
 OUTPUT_FORMATS.forEach(function (name) {
@@ -117,10 +102,10 @@ if (_.isNumber(options.bailOnFail)) {
     options.bailOnFail = false;
 }
 
-if (options.tabSize === true || options.tabSize === 0)
-    exitWithUserError("-iN option requires a tab size N >= 1");
+if (options.tab === true || options.tab === 0)
+    exitWithUserError("--tab N option requires a tab size N >= 1");
     
-var matches = options.minWidthAndMargin.match(/^(\d+):(\d+)$/);
+var matches = options.width.match(/^(\d+):(\d+)$/);
 if (!matches)
     exitWithUserError("-wM:N option requires two colon-separated integers");
 else {
@@ -130,11 +115,11 @@ else {
         exitWithUserError("-wM:N potion requires M >= 2");
 }
 
-options.diffFlags = options.diffFlags.toUpperCase();
-var boldDiffText = getOptionFlag(options.diffFlags, 'B', true);
-var colorDiffText = getOptionFlag(options.diffFlags, 'C', true);
-var underlineFirstDiff = getOptionFlag(options.diffFlags, 'U', true);
-var interleaveDiffs = getOptionFlag(options.diffFlags, 'I', false);
+var diffFlags = options.diffs.toUpperCase();
+var boldDiffText = optionTools.getFlag(diffFlags, 'B', true);
+var colorDiffText = optionTools.getFlag(diffFlags, 'C', true);
+var underlineFirstDiff = optionTools.getFlag(diffFlags, 'U', true);
+var interleaveDiffs = optionTools.getFlag(diffFlags, 'I', false);
     
 //// STATE ////////////////////////////////////////////////////////////////////
 
@@ -221,7 +206,7 @@ runNextFile(); // run first file; each subsequent file runs after prev closes
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
 function exitWithTestError(stack) {
-    var callInfo = callstack.getDeepestCallInfo(stack);
+    var callInfo = callStack.getDeepestCallInfo(stack);
     console.error("");
     if (callInfo !== null) {
         console.error(callInfo.file +":"+ callInfo.line +":"+ callInfo.column);
@@ -239,30 +224,9 @@ function exitWithUserError(message) {
     process.exit(1);
 }
 
-function applyBooleanOffSwitches(options, config) {
-    if (_.isUndefined(config.boolean))
-        return;
-    config.boolean.forEach(function (letter) {
-        if (options[letter] === '-') {
-            options[letter] = false;
-            if (!_.isUndefined(config.alias[letter]))
-                options[config.alias[letter]] = false;
-        }
-        // booleans are sometimes also numbers
-        if (_.isString(options[letter]))
-            exitWithUserError("invalid -"+ letter +" option");
-    });
-}
-
-function getOptionFlag(flags, flagLetter, defaultValue) {
-    if (_.isUndefined(flags))
-        return defaultValue;
-    return (flags.indexOf(flagLetter) >= 0);
-}
-
 function makePrettyPrinter(reportClass) {
     return new subtap.PrettyPrinter(new reportClass(process.stdout, {
-        tabSize: options.tabSize,
+        tabSize: options.tab,
         styleMode: colorMode,
         minResultsWidth: options.minResultsWidth,
         minResultsMargin: options.minResultsMargin,

@@ -11,7 +11,7 @@ var xregexp = require('xregexp');
 var _ = require('lodash');
 
 var LineMaker = require('../lib/LineMaker');
-var callstack = require('../lib/callstack');
+var callStack = require('../lib/call_stack');
 
 //// PRIVATE CONSTANTS ////////////////////////////////////////////////////////
 
@@ -190,7 +190,7 @@ BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
     this._printTestContext(subtestStack);
     var self = this;
     if (this._truncateTraceAtPath)
-        callstack.truncateAssertStacks(assert, this._truncateTraceAtPath);
+        callStack.truncateAssertStacks(assert, this._truncateTraceAtPath);
     if (subtestStack.length === 0)
         this._printFailedAssertion(subtestStack, 'fail-emph', assert);
     else
