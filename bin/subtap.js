@@ -21,9 +21,20 @@ var callStack = require("../lib/call_stack");
 var OUTPUT_FORMATS = [ 'all', 'fail', 'json', 'tally', 'tap' ];
 var DEFAULT_OUTPUT_FORMAT = 'tally';
 
+//// STATE ////////////////////////////////////////////////////////////////////
+
+var filePaths = []; // array of all test files to run
+var fileIndex = 0; // index of currently running test file
+var testNumber = 0; // number of most-recently output root subtest
+var failedTests = 0; // number of tests that have failed
+var bailed = false; // whether test file bailed out
+var skippingChunks = false; // whether skipping TAP output
+var gotPulse; // whether child process was recently active
+var timer; // heartbeat timer monitoring child activity
+
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
-// Parse command line arguments and print help if requested
+// Parse command line arguments
 
 var argv = process.argv.slice(2);
 var minimistConfig = {
@@ -39,9 +50,9 @@ var minimistConfig = {
     boolean: [ 'b', 'c', 'e', 'f', 'h', 'r' ],
     string: [ 'diffs', 'node-arg', 'width' ],
     default: {
+        diffs: 'BCU', // differences format
         t: 3000, // heartbeat timeout millis
         tab: 2, // tab size
-        diffs: 'BCU', // differences format
         width: '20:80' // <minimum width>:<minimum margin>
     }
 };
@@ -49,33 +60,42 @@ var options = minimist(argv, minimistConfig);
 // console.log(JSON.stringify(options, null, "  "));
 // process.exit(0);
 
-if (options.help) {
-    require("../lib/help");
-    process.exit(0);
-}
-
 optionTools.keepLastOfDuplicates(options, ['node-arg']);
 optionTools.applyBooleanOffSwitch(options, minimistConfig);
 var outputFormat =
         optionTools.lastOfMutuallyExclusive(options, argv, OUTPUT_FORMATS);
 if (outputFormat === null)
     outputFormat = DEFAULT_OUTPUT_FORMAT;
-    
-// Validate arguments generically where possible
 
+// Validate argument values generically where possible
 
-    
-
-var outputFormat = null;
-OUTPUT_FORMATS.forEach(function (name) {
-    if (!_.isUndefined(options[name])) {
-        if (outputFormat !== null)
-            exitWithUserError("more than one output format specified");
-        outputFormat = name;
+['e', 'f', 'h'].forEach(function (option) {
+    if (!_.isBoolean(options[option])) {
+        exitWithUserError(
+            "-"+ option +" is a boolean switch that doesn't take a value");
     }
 });
-if (outputFormat === null)
-    outputFormat = 'tally';
+
+['b', 'c'].forEach(function (option) {
+    if (!_.isBoolean(options[option]) && !_.isInteger(options[option])) {
+        exitWithUserError(
+            "-"+ option +" is a switch that optionally takes an integer");
+    }
+});
+
+['t', 'tab'].forEach(function (option) {
+    if (!_.isInteger(options[option]))
+        exitWithUserError("-"+ option +" must take an integer value");
+});
+
+// Display help if requested
+
+if (options.help) {
+    require("../lib/help");
+    process.exit(0);
+}
+
+// Get color mode and whether canonicalizing output
 
 var colorMode = options.color;
 if (colorMode === true)
@@ -91,9 +111,7 @@ if (colorMode >= 10) {
     colorMode -= 10;
 }
 
-var selectedTest = options.run;
-if (selectedTest === 0 || selectedTest === true)
-    exitWithUserError("-r option requires a non-zero test number (e.g. -r42)");
+// Get maximum number of tests that may fail
 
 var maxFailedTests = 0; // assume no maximum
 if (_.isNumber(options.bail)) {
@@ -101,8 +119,12 @@ if (_.isNumber(options.bail)) {
     options.bail = false;
 }
 
-if (options.tab === true || options.tab === 0)
+// Validate tab size
+
+if (options.tab === 0)
     exitWithUserError("--tab N option requires a tab size N >= 1");
+    
+// Get the minimum results width and margin
     
 var matches = options.width.match(/^(\d+):(\d+)$/);
 if (!matches) {
@@ -116,23 +138,24 @@ else {
         exitWithUserError("--width=M:N option requires M >= 2");
 }
 
+// Validate and retrieve the difference flags
+
 var diffFlags = options.diffs.toUpperCase();
+if (!/^[BCIU]*$/.test(diffFlags)) {
+    exitWithUserError(
+            "--diffs flags must be zero or more of the characters BCIU");
+}
 var boldDiffText = optionTools.getFlag(diffFlags, 'B', true);
 var colorDiffText = optionTools.getFlag(diffFlags, 'C', true);
-var underlineFirstDiff = optionTools.getFlag(diffFlags, 'U', true);
 var interleaveDiffs = optionTools.getFlag(diffFlags, 'I', false);
+var underlineFirstDiff = optionTools.getFlag(diffFlags, 'U', true);
+
+// Validate the tests to run
     
-//// STATE ////////////////////////////////////////////////////////////////////
-
-var filePaths = []; // array of all test files to run
-var fileIndex = 0; // index of currently running test file
-var testNumber = 0; // number of most-recently output root subtest
-var failedTests = 0; // number of tests that have failed
-var bailed = false; // whether test file bailed out
-var skippingChunks = false; // whether skipping TAP output
-var gotPulse; // whether child process was recently active
-var timer; // heartbeat timer monitoring child activity
-
+var selectedTest = options.run;
+if (selectedTest === 0 || selectedTest === true)
+    exitWithUserError("-r option requires a non-zero test number (e.g. -r42)");
+    
 //// TEST RUNNER //////////////////////////////////////////////////////////////
 
 var cwd = process.cwd();
