@@ -62,8 +62,7 @@ var options = minimist(argv, minimistConfig);
 
 optionTools.keepLastOfDuplicates(options, ['node-arg']);
 optionTools.applyBooleanOffSwitch(options, minimistConfig);
-var outputFormat =
-        optionTools.lastOfMutuallyExclusive(options, argv, OUTPUT_FORMATS);
+var outputFormat = optionTools.lastOfMutuallyExclusive(argv, OUTPUT_FORMATS);
 if (outputFormat === null)
     outputFormat = DEFAULT_OUTPUT_FORMAT;
 
@@ -138,7 +137,7 @@ else {
         exitWithUserError("--width=M:N option requires M >= 2");
 }
 
-// Validate and retrieve the difference flags
+// Validate and retrieve the difference indication flags
 
 var diffFlags = options.diffs.toUpperCase();
 if (!/^[BCIU]*$/.test(diffFlags)) {
