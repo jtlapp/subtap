@@ -592,13 +592,20 @@ BaseReport.prototype._printInterleavedDiffs = function(
         deltas = diff.diffLines(expected.val, actual.val);
     }
     
+    // Use a label that indicates whether there are any differences. Can't
+    // compare actual.val === expected.val because different objects may
+    // have identical serializations.
+    
+    var delta = deltas[deltas.length - 1];
+    var label = LABEL_DIFFS;
+    if (deltas.length === 1 && !delta.added && !delta.removed)
+        label = LABEL_NO_DIFFS;
+
     // Place a proper YAML trailing LF marker, even though it's possible
     // that a prior diff line also does not end with a LF. The presence
     // of a LF is instead indicated via BaseReport.SYMBOL_NEWLINE.
 
-    var label = (actual.val === expected.val ? LABEL_NO_DIFFS : LABEL_DIFFS);
-    var value = deltas[deltas.length - 1].value;
-    this._maker.line(indentLevel++, label + this._yamlMark(value));
+    this._maker.line(indentLevel++, label + this._yamlMark(delta.value));
     
     // Print the line differences in the string representations. The diff
     // utilities always lists lines removed from the expected value before
@@ -607,9 +614,9 @@ BaseReport.prototype._printInterleavedDiffs = function(
     
     var nextDeltaValue = null;
     for (var i = 0; i < deltas.length; ++i) {
-        var delta = deltas[i];
+        delta = deltas[i];
 
-        value = nextDeltaValue;
+        var value = nextDeltaValue;
         if (value === null) {
             value = delta.value;
             if (actual.type === 'object') // === expected.type
