@@ -18,6 +18,7 @@ var callStack = require("../lib/call_stack");
 
 //// CONSTANTS ////////////////////////////////////////////////////////////////
 
+var ENV_DEFAULT_ARGS = 'SUBTAP_ARGS';
 var OUTPUT_FORMATS = [ 'all', 'fail', 'json', 'tally', 'tap' ];
 var DEFAULT_OUTPUT_FORMAT = 'tally';
 var REGEX_VALID_SUBSET = /^\d+(\.\.\d+)?(,(\d+(\.\.\d+)?))*$/;
@@ -38,7 +39,14 @@ var timer; // heartbeat timer monitoring child activity
 
 // Parse command line arguments, displaying help if requested.
 
-var argv = process.argv.slice(2);
+var argv = [];
+if (_.isString(process.env[ENV_DEFAULT_ARGS])) {
+    argv = _.trim(process.env[ENV_DEFAULT_ARGS]).split(/ +/);
+    if (argv[0] === '')
+        argv = [];
+}
+var argv = argv.concat(process.argv.slice(2));
+
 var minimistConfig = {
     alias: {
         b: 'bail',
@@ -149,9 +157,9 @@ matches = options.mark.match(/[^:]+/g);
 if (matches.length === 1)
     matches.push(matches[0]);
 var markFlags = matches[options.diff ? 1 : 0];
-var boldDiffText = optionTools.getFlag(markFlags, 'B', false);
-var colorDiffText = optionTools.getFlag(markFlags, 'C', false);
-var reverseFirstDiff = optionTools.getFlag(markFlags, 'R', false);
+var boldDiffText = optionTools.getFlag(markFlags, 'B');
+var colorDiffText = optionTools.getFlag(markFlags, 'C');
+var reverseFirstDiff = optionTools.getFlag(markFlags, 'R');
 
 // Validate the tests to run and determine last test number selected
     
