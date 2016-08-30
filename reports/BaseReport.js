@@ -443,10 +443,9 @@ BaseReport.prototype._normalizeTypedValue = function (
 
     else if (typedValue.type === 'object') {
         value = JSON.stringify(value, this._truncateFunction, this._indent);
-        if (stringifyObject) {
+        typedValue.multiline = (value.indexOf("\n") >= 0);
+        if (stringifyObject)
             value = this._normalizeJSON(value);
-            typedValue.multiline = (value.indexOf("\n") >= 0);
-        }
         else
             value = JSON.parse(value); // functions now normalized
     }
@@ -529,23 +528,19 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
                 (actual.type === 'string' || actual.type === 'object'))
             this._highlightDiffs(actual, expected);
         
-        if (actual.multiline)
+        if (actual.multiline || expected.multiline) {
             this._printMultilineValue('found', indentLevel, actual);
-        else {
-            if (!expected.multiline) {
-                var labelDiff = actual.label.length - expected.label.length;
-                if (labelDiff < 0)
-                    actual.label += this._maker.spaces(-labelDiff);
-                else if (labelDiff > 0)
-                    expected.label += this._maker.spaces(labelDiff);
-            }
-            this._printSingleLineValue('found', indentLevel, actual);
-        }
-
-        if (expected.multiline)
             this._printMultilineValue('wanted', indentLevel, expected);
-        else
+        }
+        else {
+            var labelDiff = actual.label.length - expected.label.length;
+            if (labelDiff < 0)
+                actual.label += this._maker.spaces(-labelDiff);
+            else if (labelDiff > 0)
+                expected.label += this._maker.spaces(labelDiff);
+            this._printSingleLineValue('found', indentLevel, actual);
             this._printSingleLineValue('wanted', indentLevel, expected);
+        }
     }
         
     // delete values from diagnostics so they aren't printed in the YAML
@@ -601,8 +596,9 @@ BaseReport.prototype._printInterleavedDiffs = function(
     // that a prior diff line also does not end with a LF. The presence
     // of a LF is instead indicated via BaseReport.SYMBOL_NEWLINE.
 
+    var label = (actual.val === expected.val ? LABEL_NO_DIFFS : LABEL_DIFFS);
     var value = deltas[deltas.length - 1].value;
-    this._maker.line(indentLevel++, LABEL_DIFFS + this._yamlMark(value));
+    this._maker.line(indentLevel++, label + this._yamlMark(value));
     
     // Print the line differences in the string representations. The diff
     // utilities always lists lines removed from the expected value before
