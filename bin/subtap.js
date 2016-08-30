@@ -5,11 +5,13 @@
 //// MODULES //////////////////////////////////////////////////////////////////
 
 var Writable = require('stream').Writable;
+var fs = require('fs');
 var resolveModule = require('resolve');
 var path = require('path');
 var minimist = require('minimist');
 var glob = require('glob');
 var fork = require('child_process').fork;
+var yaml = require('js-yaml');
 var _ = require('lodash');
 
 var subtap = require("../");
@@ -19,6 +21,7 @@ var callStack = require("../lib/call_stack");
 //// CONSTANTS ////////////////////////////////////////////////////////////////
 
 var ENV_DEFAULT_ARGS = 'SUBTAP_ARGS';
+var ENV_COLOR_FILE = 'SUBTAP_COLOR';
 var OUTPUT_FORMATS = [ 'all', 'fail', 'json', 'tally', 'tap' ];
 var DEFAULT_OUTPUT_FORMAT = 'tally';
 var REGEX_VALID_SUBSET = /^\d+(\.\.\d+)?(,(\d+(\.\.\d+)?))*$/;
@@ -119,6 +122,25 @@ if (colorMode >= 10) {
     colorMode -= 10;
 }
 
+// Get color map file, if provided
+
+var cwd = process.cwd();
+var colorOverrides = null;
+if (_.isString(process.env[ENV_COLOR_FILE])) {
+    var colorFilePath = _.trim(process.env[ENV_COLOR_FILE]);
+    if (colorFilePath !== '') {
+        colorFilePath = path.resolve(cwd, colorFilePath);
+        var fileText;
+        try {
+            fileText = fs.readFileSync(colorFilePath, 'utf8');
+        }
+        catch (err) {
+            exitWithUserError("failed to read color file "+ colorFilePath);
+        }
+        colorOverrides = yaml.safeLoad(fileText);
+    }
+}
+
 // Get maximum number of tests that may fail
 
 var maxFailedTests = 0; // assume no maximum
@@ -183,7 +205,6 @@ else {
     
 //// TEST RUNNER //////////////////////////////////////////////////////////////
 
-var cwd = process.cwd();
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
 var childPath = path.resolve(__dirname, "_runfile.js");
 var childEnv = (options.bail ? { TAP_BAIL: '1' } : {});
@@ -277,6 +298,7 @@ function makePrettyPrinter(reportClass) {
     return new subtap.PrettyPrinter(new reportClass(process.stdout, {
         tabSize: options.tab,
         styleMode: colorMode,
+        colorOverrides: colorOverrides,
         minResultsWidth: options.minResultsWidth,
         minResultsMargin: options.minResultsMargin,
         truncateTraceAtPath: childPath,

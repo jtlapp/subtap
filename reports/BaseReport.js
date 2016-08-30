@@ -29,20 +29,21 @@ var REGEX_FUNCTION_SIG = new RegExp("^function *(?:"+ REGEX_JS_TERM +" *)?"+
 
 // see https://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg
 // and https://en.wikipedia.org/wiki/ANSI_escape_code
-// 'bad' - style of text for incorrect results
-// 'fail' - style of text for names/descriptions of failed tests/assertions
-// 'fail-emph' - style of line for a failed root-most test name
-// 'found' - style of background for found value
-// 'good' - style of text for correct results corresponding to incorrect text
-// 'label' - style of text for de-emphasized YAML labels
-// 'pass' - style of text for names/descriptions of passed tests/assertions
-// 'same' - style of background for line that is same in found/wanted diffs
-// 'wanted' - style of background for wanted value
+
+// 'pass' - style for name of a passing assertion or subtest
+// 'root-fail' - style for name of a failed root subtest
+// 'fail' - style for other lines reporting errors or failures
+// 'found' - style of background for a found value
+// 'wanted' - style of background for a wanted value
+// 'same' - style of background for a non-differing diff line
+// 'bad' - style for marking found text that was not wanted
+// 'good' - style for marking wanted text that was not found
+// 'label' - style for a secondary YAML label
 
 var COLORMAP_16 = {
     'bad': '\x1b[31m', // dark red text
     'fail': '\x1b[31m', // dark red text
-    'fail-emph': '\x1b[97m\x1b[101m', // bright white on bright red background
+    'root-fail': '\x1b[97m\x1b[101m', // bright white on bright red background
     'found': '\x1b[103m', // bright yellow background
     'good': '\x1b[32m', // dark green text
     'label': '\x1b[90m', // light gray text
@@ -54,7 +55,7 @@ var COLORMAP_16 = {
 var COLORMAP_256 = {
     'bad': '\x1b[31m', // dark red text
     'fail': '\x1b[31m', // dark red text
-    'fail-emph': '\x1b[38;5;124m\x1b[48;5;224m', // dark red on light red
+    'root-fail': '\x1b[38;5;124m\x1b[48;5;224m', // dark red on light red
     'found': '\x1b[48;5;225m', // light pink background
     'good': '\x1b[38;5;022m', // dark green text
     'label': '\x1b[38;5;242m', // gray text
@@ -93,6 +94,7 @@ var COLORMAP_256 = {
  *   - tabSize: width of each indentation level in spaces
  *   - truncateTraceAtPath: Path of file in call stack at which to abbreviate stack to just this path (defaults to null for no truncation)
  *   - styleMode: degree to which to allow ANSI escape sequences. see the LineMaker.STYLE_ constants.
+ *   - colorOverrides: object mapping style names to escape sequences providing their colors. styles override defaults on a name-by-name basis.
  *   - minResultsWidth: min width at which to wrap failure results area
  *   - minResultsMargin: min right-margin wrap column for failure results
  *   - showFunctionSource: whether to output entire source of functions found in result differences (defaults to false)
@@ -125,6 +127,7 @@ function BaseReport(outputStream, options) {
         styleMode: options.styleMode,
         colorMap16: COLORMAP_16,
         colorMap256: COLORMAP_256,
+        colorOverrides: options.colorOverrides,
         continuation: BaseReport.SYMBOL_CONTINUED,
         writeFunc: function (text) {
             if (options.canonical)
@@ -179,9 +182,9 @@ BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
             this._printUpLine();
             var testInfo = subtestStack[0];
             var text = this._color('fail', this._bold(BaseReport.SYMBOL_FAIL));
-            text += ' '+ this._color('fail-emph', this._bold(testInfo.name));
+            text += ' '+ this._color('root-fail', this._bold(testInfo.name));
             if (testInfo.file)
-                text += this._color('fail-emph', testInfo.file);
+                text += this._color('root-fail', testInfo.file);
             this._maker.line(0, text);
             this._depthShown = 1;
         }
@@ -192,7 +195,7 @@ BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
     if (this._truncateTraceAtPath)
         callStack.truncateAssertStacks(assert, this._truncateTraceAtPath);
     if (subtestStack.length === 0)
-        this._printFailedAssertion(subtestStack, 'fail-emph', assert);
+        this._printFailedAssertion(subtestStack, 'root-fail', assert);
     else
         this._printFailedAssertion(subtestStack, 'fail', assert);
 };
