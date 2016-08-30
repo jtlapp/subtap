@@ -1,18 +1,18 @@
 # subtap
 
-A test runner for tap that selectively runs subtests
+A test runner for [`tap`](https://github.com/tapjs/node-tap) that selectively runs subtests
 
 ## BETA RELEASE
 
-This is a beta release of `subtap` for the purpose of getting feedback from tap users. Once I have some confidence that the generated output is reasonable and relatively stable, I will produce a test suite for it and release version 1.0.0. At that point it will be ready for contributions from others.
+This is a beta release of `subtap` for the purpose of getting initial feedback. Once I have some confidence that the generated output is reasonable and relatively stable, I'll produce a test suite for it and release version 1.0.0. At that point it will be open to contributions from others.
 
 ## Overview
 
 `subtap` is a test runner for debugging test suites by selectively running subtests. It is also a TAP pretty-printer that emphasizes making differences between found and wanted values obvious at a glance.
 
-`subtap` numbers the root subtests across all of the test files. A "root subtest" is a test whose parent is a file's root test. The `-r` option provides test numbers and restricts the run to only those tests. The user can also control whether the test run exits when a subtest throws an exception and how many root subtests may fail before bailing out of the test run.
+`subtap` numbers the root subtests across all of the test files. A "root subtest" is a test whose parent is the root `tap` test of a file. The `-r` option provides test numbers and restricts the run to only those tests. The user can also control whether the test run exits when a subtest throws an exception and how many root subtests may fail before bailing out of the test run.
 
-When the found and wanted values of a test assertion differ, `subtap` can emphasize the first differing character and the differing text. It shows `\n` in text and trailing spaces as visible characters, and it aligns values for proper vertical comparison. The differences between values may also be shown as interleaving diff lines.
+When the found and wanted values of a test assertion differ, `subtap` can emphasize the first differing character and the differing text. It shows LFs (`\n`) in text and trailing spaces as visible characters, and it aligns values for proper vertical comparison. The differences between values may also be shown as interleaving diff lines.
 
 This tool only works with tests that employ the [`tap` module](https://github.com/tapjs/node-tap).
 
@@ -119,17 +119,15 @@ isolate and focus on problematic root subtests.
 
 `subtap` includes other special features such as the following:
 
-- Output formats that print only partial results show all work being done on the last line of the terminal, overwriting this line as work progresses.
-- When the difference between two values is a `\n`, the difference will be immediately apparent because `subtap` shows `\n` as `⏎` and can highlight this character in the value for which it is present.
+- The output formats that print only partial test results show all work being done on the last line of the terminal window, overwriting this line as work progresses.
+- When the difference between two values is a LF (`\n`), the difference will be immediately apparent because `subtap` shows the LF as `⏎` and can highlight this character in the value for which it is present.
 - When the difference between two values is a trailing space, the difference will be immediately apparent because `subtap` shows trailing spaces as `·` and can highlight this character in the value for which it is present.
 - Long lines are wrapped at the configured wrap margin and continued on the next line with a preceding `…` character, allowing long lines to respect indentation.
 - The `strictSame()` and `strictNotSame()` assertions compare object types. `subtap` shows object class names in an `_instanceof_` property when showing differences between found and wanted values of these assertions.
 - The values of found and wanted objects are displayed in Javascript syntax. This is JSON syntax with the property name unquoted where possible.
-- When printing the difference between found and wanted values as interleaving diff lines, when the two values are identical, the YAML label reads `noDiffs` instead of `diffs` to help keep you from looking for differences.
+- When printing the difference between found and wanted values as interleaving diff lines and the two values are identical, the YAML label is `noDiffs` instead of `diffs` to help keep you from looking for differences.
 
 ## Environment Variables
-
-`subtap` recognizes these environment variables.
 
 ### `SUBTAP_ARGS`
 
@@ -193,7 +191,7 @@ FORTHCOMING
 
 ## Thanks
 
-Thank you @isaacs for your endless patience helping me get up to speed on `tap`, node, and even Javascript. Thank you @ljharb for your input on my first iteration attempt originally based on `tape`. Thank you @substack for inspiring me with [`faucet`](https://github.com/substack/faucet) and [`tape`](https://github.com/substack/tape).
+Thank you [@isaacs](https://github.com/isaacs) for your endless patience helping me get up to speed on `tap`, node, and even Javascript. Thank you [@ljharb](https://github.com/ljharb) for your input on my first iteration attempt originally based on `tape`. Thank you [@substack](https://github.com/substack) for inspiring me with [`faucet`](https://github.com/substack/faucet) and [`tape`](https://github.com/substack/tape).
 
 ## TO DO
 
