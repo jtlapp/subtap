@@ -1,7 +1,7 @@
 {
   "name": "subtap",
-  "version": "0.0.1",
-  "description": "A test runner for tap that presents results by nested test",
+  "version": "0.1.0",
+  "description": "A test runner for tap that selectively runs subtests",
   "main": "index.js",
   "bin": "./bin/subtap.js",
   "scripts": {
