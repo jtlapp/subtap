@@ -6,6 +6,8 @@ A test runner for [`tap`](https://github.com/tapjs/node-tap) that selectively ru
 
 This is a beta release of `subtap` for the purpose of getting initial feedback. Once I have some confidence that the generated output is reasonable and relatively stable, I'll produce a test suite for it and release version 1.0.0. At that point it will be open to contributions from others.
 
+`subtap` is not yet working with the recent `tap` 7.0.0 release.
+
 ## Overview
 
 `subtap` is a test runner for debugging test suites by selectively running subtests. It is also a TAP pretty-printer that emphasizes making differences between found and wanted values obvious at a glance.

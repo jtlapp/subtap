@@ -495,7 +495,7 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
         expected = this._createResult('notWanted', 'doNotWant',
                  assert.diag.doNotWant);
     }
-    var mustQuote = (actual.type === 'string' && !actual.multiline ||
+    var mustQuote = (actual.type === 'string' && !actual.multiline &&
             expected.type === 'string' && !expected.multiline);
 
     // output actual value by itself when there is no intended value
