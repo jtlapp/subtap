@@ -336,6 +336,12 @@ BaseReport.prototype._highlightDiff = function (
         quote = diff[diff.length - 1];
         diff = diff.substr(0, diff.length - 1);
     }
+    else {
+        // don't allow a trialing LF to be embedded between escape sequences,
+        // where LineMaker won't know to strip it for following printed text.
+        if (diff[diff.length - 1] === "\n")
+            diff = diff.substr(0, diff.length - 1);
+    }
     if (diff.length > 0 && this._reverseFirstDiff) {
         var firstChar = diff[0];
         if (firstChar === "\\")
@@ -428,9 +434,7 @@ BaseReport.prototype._normalizeTypedValue = function (
                 value = value.substr(0, value.length - match[0].length);
                 value += BaseReport.SYMBOL_SPACE.repeat(match[0].length);
             }
-            // a trailing BaseReport.SYMBOL_NEWLINE indicates a trailing LF
-            if (value[value.length - 1] === "\n")
-                value = value.substr(0, value.length - 1);
+            // can't strip trailing LF here; need it for accurate diffing
         }
     }
         
@@ -600,14 +604,34 @@ BaseReport.prototype._printInterleavedDiffs = function(
     var value = deltas[deltas.length - 1].value;
     this._maker.line(indentLevel++, LABEL_DIFFS + this._yamlMark(value));
     
-    // Print the line differences in the string representations.
+    // Print the line differences in the string representations. The diff
+    // utilities always lists lines removed from the expected value before
+    // listing lines from the actual value that replaced them, so if a
+    // removal precedes an addition, we can highlight their differences.
     
+    var nextDeltaValue = null;
     for (var i = 0; i < deltas.length; ++i) {
         var delta = deltas[i];
-        value = delta.value;
-        if (actual.type === 'object') // === expected.type
-            value = this._normalizeJSON(value);
+
+        value = nextDeltaValue;
+        if (value === null) {
+            value = delta.value;
+            if (actual.type === 'object') // === expected.type
+                value = this._normalizeJSON(value);
+        }
+        nextDeltaValue = null;
+
         if (delta.removed) {
+            if (i + 1 < deltas.length && deltas[i + 1].added) {
+                nextDeltaValue = deltas[i + 1].value;
+                if (actual.type === 'object') // === expected.type
+                    nextDeltaValue = this._normalizeJSON(nextDeltaValue);
+                var partialActual = { val: nextDeltaValue };
+                var partialExpected = { val: value };
+                this._highlightDiffs(partialActual, partialExpected);
+                value = partialExpected.val;
+                nextDeltaValue = partialActual.val;
+            }
             this._printDiffLines(indentLevel, 'wanted',
                       BaseReport.SYMBOL_GOOD_LINE +' ', value);
         }

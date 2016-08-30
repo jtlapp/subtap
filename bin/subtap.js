@@ -43,19 +43,20 @@ var minimistConfig = {
     alias: {
         b: 'bail',
         c: 'color',
+        d: 'diff',
         e: 'log-exceptions',
         f: 'full-functions',
         h: 'help',
         r: 'run',
         t: 'timeout'
     },
-    boolean: [ 'b', 'c', 'e', 'f', 'h' ],
-    string: [ 'diffs', 'node-arg', 'r', 'width' ],
+    boolean: [ 'b', 'c', 'd', 'e', 'f', 'h' ],
+    string: [ 'mark', 'node-arg', 'r', 'wrap' ],
     default: {
-        diffs: 'BCR', // differences format
+        mark: 'BCR:BC', // how to mark differences
         t: 3000, // heartbeat timeout millis
         tab: 2, // tab size
-        width: '20:80' // <minimum width>:<minimum margin>
+        wrap: '20:80' // <minimum width>:<minimum margin>
     }
 };
 var options = minimist(argv, minimistConfig);
@@ -75,7 +76,7 @@ if (outputFormat === null)
 
 // Validate argument values generically where possible
 
-['e', 'f'].forEach(function (option) {
+['d', 'e', 'f'].forEach(function (option) {
     if (!_.isBoolean(options[option])) {
         exitWithUserError(
             "-"+ option +" is a boolean switch that doesn't take a value");
@@ -125,29 +126,32 @@ if (options.tab === 0)
     
 // Get the minimum results width and margin
     
-var matches = options.width.match(/^(\d+):(\d+)$/);
+var matches = options.wrap.match(/^(\d+):(\d+)$/);
 if (!matches) {
     exitWithUserError(
-            "--width=M:N option requires two colon-separated integers");
+            "--wrap=M:N option requires two colon-separated integers");
 }
 else {
     options.minResultsWidth = parseInt(matches[1]);
     options.minResultsMargin = parseInt(matches[2]);
     if (options.minResultsWidth < 2)
-        exitWithUserError("--width=M:N option requires M >= 2");
+        exitWithUserError("--wrap=M:N option requires M >= 2");
 }
 
-// Validate and retrieve the difference indication flags
+// Validate and retrieve the difference mark flags
 
-var diffFlags = options.diffs.toUpperCase();
-if (!/^[BCIR]*$/.test(diffFlags)) {
+options.mark = options.mark.toUpperCase();
+if (!/^[BCR_]+(:[BCR_]+)?$/.test(options.mark)) {
     exitWithUserError(
-            "--diffs flags must be zero or more of the characters BCIR");
+            "--mark flags must be one or more of the characters BCR_");
 }
-var boldDiffText = optionTools.getFlag(diffFlags, 'B', true);
-var colorDiffText = optionTools.getFlag(diffFlags, 'C', true);
-var interleaveDiffs = optionTools.getFlag(diffFlags, 'I', false);
-var reverseFirstDiff = optionTools.getFlag(diffFlags, 'R', true);
+matches = options.mark.match(/[^:]+/g);
+if (matches.length === 1)
+    matches.push(matches[0]);
+var markFlags = matches[options.diff ? 1 : 0];
+var boldDiffText = optionTools.getFlag(markFlags, 'B', false);
+var colorDiffText = optionTools.getFlag(markFlags, 'C', false);
+var reverseFirstDiff = optionTools.getFlag(markFlags, 'R', false);
 
 // Validate the tests to run and determine last test number selected
     
@@ -272,7 +276,7 @@ function makePrettyPrinter(reportClass) {
         boldDiffText: boldDiffText,
         colorDiffText: colorDiffText,
         reverseFirstDiff: reverseFirstDiff,
-        interleaveDiffs: interleaveDiffs,
+        interleaveDiffs: options.diff,
         canonical: canonical
     }));
 }
