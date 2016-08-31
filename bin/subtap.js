@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 
+/******************************************************************************
+subtap executable command line tool
+******************************************************************************/
+
 // To debug, put child on different debug port via --node-arg=--debug=5859
+
+// At present, subtap only works with tap-parser versions prior to 2.0.0. tap 7.0.0 changed the indentation levels of TAP subtest comments, and tap-parser 2.0.0 requires the new indentation.
+// It was an option to upgrade subtap to tap-parser 2.0.0 and force subtap users to use tap 7.0.0 or later, but tap-parser 2.0.0 also interprets bail-outs issued during tear-down as belonging to anonymous tests. It is possible to work around this by having _runfile emit a TAP comment signifying a subtap-specific abort, but then subtap would not properly signal the fact that the test aborted in its --tap output. In order to allow -bN to signal "Bail out!" using --tap, subtap must remain with a pre-2.0.0 tap-parser. 
+// subtap therefore tweaks the TAP output received from the version of tap the tests use so that it is compatible with tap-parser 1.2.2. This allows subtap to continue issuing bail-outs for -bN and be compatible with all tap versions.
 
 //// MODULES //////////////////////////////////////////////////////////////////
 
@@ -32,6 +40,8 @@ var REGEX_RANGE_ENDS = /\d+(?!\.)/g;
 var filePaths = []; // array of all test files to run
 var fileIndex = 0; // index of currently running test file
 var testNumber = 0; // number of most-recently output root subtest
+var firstSubtest = true; // whether waiting for first subtest name
+var subtestIndent = null; // spaces to further indent subtest names
 var failedTests = 0; // number of tests that have failed
 var bailed = false; // whether test file bailed out
 var skippingChunks = false; // whether skipping TAP output
@@ -337,7 +347,20 @@ function runNextFile() {
                 break;
             case 'chunk':
                 var text = msg.text;
-                if (/^bail out!/i.test(text))
+                // console.log("CHUNK ["+ text +"]");
+                if (/^ *# Subtest:/.test(text)) {
+                    // hack to make tap 7.0.0 compatible with tap-parser 1.2.2,
+                    // so subtap doesn't have to enforce a version of tap, and
+                    // so subtap can induce a TAP "bail out" for -bN.
+                    if (firstSubtest) {
+                        if (text.indexOf('#') === 0)
+                            subtestIndent = '    ';
+                        firstSubtest = false;
+                    }
+                    if (subtestIndent !== null)
+                        text = subtestIndent + text;
+                }
+                else if (/^bail out!/i.test(text))
                     bailed = true;
                 else if (/^\d+\.\.\d+/.test(text))
                     skippingChunks = true;
