@@ -495,14 +495,13 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
         expected = this._createResult('notWanted', 'doNotWant',
                  assert.diag.doNotWant);
     }
-    var mustQuote = (actual.type === 'string' && !actual.multiline &&
-            expected.type === 'string' && !expected.multiline);
+    var mustQuoteString = (!actual.multiline && !expected.multiline);
 
     // output actual value by itself when there is no intended value
 
     if (!expected) {
-        this._normalizeTypedValue(actual, mustQuote, true);
-        this._normalizeTypedValue(expected, mustQuote, true);
+        this._normalizeTypedValue(actual, mustQuoteString, true);
+        this._normalizeTypedValue(expected, mustQuoteString, true);
         
         if (actual.multiline)
             this._printMultilineValue('found', indentLevel, actual);
@@ -524,8 +523,8 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
     // otherwise output actual and intended values separately
     
     else {
-        this._normalizeTypedValue(actual, mustQuote, true);
-        this._normalizeTypedValue(expected, mustQuote, true);
+        this._normalizeTypedValue(actual, mustQuoteString, true);
+        this._normalizeTypedValue(expected, mustQuoteString, true);
 
         if (actual.type === expected.type &&
                 (actual.type === 'string' || actual.type === 'object'))
