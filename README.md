@@ -50,7 +50,8 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
 
   --all    Output the results of all tests and assertions.
 
-  --tap    Output the raw TAP text.
+  --tap    Output the raw TAP text. Useful for selectively running tests with
+           subtap while rendering output using another TAP prettifier tool.
 
   --json   Output 'tap-parser' module events in a JSON array.
 ```
