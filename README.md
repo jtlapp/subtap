@@ -189,7 +189,42 @@ These default colors are designed for a white background.
 
 ## Example Output
 
-FORTHCOMING
+The images below are snapshots of the output of running `subtap` on the following test file:
+
+```js
+var tap = require('tap');
+
+class ClassA {
+    constructor (x, y) { this.x = x; this.y = y; }
+}
+
+class ClassB {
+    constructor (x, y) { this.x = x; this.y = y; }
+}       
+
+tap.test("unequal but should be equal", function (t) {
+    t.equal("with a sudtle difference", "with a subtle difference");
+    t.equal("line 1\nline 2", "line 1\nline 2\n", "missing LF");
+    t.equal(1234, "1234", "an integer and a string");
+    t.equal({ x: 1, y: 2 }, { x: 1, y: 3 });
+    t.strictSame(new ClassA(1, 2), new ClassB(1, 2), "different classes");
+    t.end();
+});
+
+tap.test("equal but should be unequal", function (t) {
+    t.notEqual(-1, -1, "don't want -1");
+    t.notEqual("line 1 \nline 2  ", "line 1 \nline 2  ",
+            "with trailing spaces");
+    t.notEqual("123", "123", "clearly a string");
+    t.end();
+});
+```
+
+The image on the left is the output when not interleaving line differences. The image on the right is the output when interleaving line differences using the `-d` option. Click on an image to see it full size.
+
+<div style="width:300px; margin-left:20px; float:left"><a href="http://josephtlapp.com/elsewhere/subtap/demo-no-diff.png" target="_subtap"><img style="max-width:100%" src="http://josephtlapp.com/elsewhere/subtap/demo-no-diff.png" alt="$ subtap -d-" title="normal output" /></a></div>
+<div style="width:300px; margin-left:20px; float:left"><a href="http://josephtlapp.com/elsewhere/subtap/demo-diff.png" target="_subtap"><img style="max-width:100%" src="http://josephtlapp.com/elsewhere/subtap/demo-diff.png" alt="$ subtap -d-" title="diffs output" /></a></div>
+<div style="clear:both"></div>
 
 ## Thanks
 
