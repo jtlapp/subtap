@@ -8,13 +8,13 @@ This is a beta release of `subtap` for the purpose of getting initial feedback. 
 
 ## Overview
 
-`subtap` is a test runner for debugging test suites by selectively running subtests. It is also a TAP pretty-printer that emphasizes making differences between found and wanted values obvious at a glance.
+`subtap` is a test runner for debugging test suites by selectively running subtests. It is also a TAP pretty-printer that emphasizes making even subtle differences between found and wanted values obvious at a glance.
 
 `subtap` numbers the root subtests across all of the test files. A "root subtest" is a test whose parent is the root `tap` test of a file. The `-r` option provides test numbers and restricts the run to only those tests. The user can also control whether the test run exits when a subtest throws an exception and how many root subtests may fail before bailing out of the test run.
 
 When the found and wanted values of a test assertion differ, `subtap` can emphasize the first differing character and the differing text. It shows LFs (`\n`) in text and trailing spaces as visible characters, and it aligns values for proper vertical comparison. The differences between values may also be shown as interleaving diff lines.
 
-This tool only works with tests that employ the [`tap` module](https://github.com/tapjs/node-tap).
+This tool only works with tests that employ the [`tap` module](https://github.com/tapjs/node-tap), because its primary purpose is to extend the functionality of `tap`. You may use the `--tap` option to direct TAP output from this tool to a prettifier or TAP-analysis tool of your choice.
 
 ## Installation
 
