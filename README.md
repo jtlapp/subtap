@@ -6,7 +6,7 @@ A test runner for [`tap`](https://github.com/tapjs/node-tap) that selectively ru
 
 This is a beta release of `subtap` for the purpose of getting initial feedback. Once I have some confidence that the generated output is reasonable and relatively stable, I'll produce a test suite for it and release version 1.0.0. At that point it will be open to contributions from others.
 
-`subtap` is not yet working with the recent `tap` 7.0.0 release.
+`subtap` does not yet work with the recent `tap` 7.0.0 release. The problem is that `tap` 7.0.0 requires `tap-parser` 2.0.0, but `subtap` provides the version of `tap-parser` and the user's test suite supplies the version of `tap`.
 
 ## Overview
 
