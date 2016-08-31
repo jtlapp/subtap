@@ -9,10 +9,22 @@
   },
   "keywords": [
     "tap",
+    "test",
     "runner",
-    "subtest"
+    "harness",
+    "subtest",
+    "assert"
   ],
-  "author": "Joe Lapp",
+  "author": {
+    "name": "Joe Lapp",
+    "email": "arachnojoe@gmail.com",
+    "url": "http://josephtlapp.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/jtlapp/subtap.git"
+  },
+  "homepage": "https://github.com/jtlapp/subtap",
   "license": "MIT",
   "dependencies": {
     "color-support": "^1.1.1",
