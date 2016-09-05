@@ -36,5 +36,8 @@
     "resolve": "^1.1.7",
     "tap-parser": "^1.2.2",
     "xregexp": "^3.1.1"
+  },
+  "devDependencies": {
+    "tap": "^7.0.0"
   }
 }

@@ -116,7 +116,8 @@ isolate and focus on problematic root subtests.
                          B: bold (differing text shown in bold)
                          C: color (differing text shown in color)
                          F: reverse-video the first different character
-                         R: reverse-video the difference between first lines
+                         R: reverse-video the entire difference (restricted
+                             to first line difference when using --diff)
                          _: turn off flags (e.g. --mark=BR:_)
 
   --node-arg=<arg>     Pass <arg> to the node process in which the test file
@@ -150,7 +151,7 @@ isolate and focus on problematic root subtests.
 
 ### `SUBTAP_COLOR`
 
-`SUBTAP_COLOR` is a path to a YAML file specifying color overrides. The path may be relative to the current working directory. The file associates the following style names with ANSI escape code strings:
+`SUBTAP_COLOR` is a path to a YAML file specifying color overrides. The path may be relative to the current working directory. The file associates the following style names with [ANSI escape codes](https://en.wikipedia.org/wiki/ANSI_escape_code):
 
 ```
   pass - style for name of a passing assertion or subtest
@@ -161,41 +162,44 @@ isolate and focus on problematic root subtests.
   same - style of background for a non-differing diff line
   bad - style for marking found text that was not wanted
   good - style for marking wanted text that was not found
-  label - style for a secondary YAML label
+  label1 - style for a primary YAML label
+  label2 - style for a secondary YAML label
 ```
 
-For example, to make secondary labels orange, include the following line in the `SUBTAP_COLOR` file:
+See [this color chart](https://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg) for the available colors. For example, to make primary labels orange, include the following line in the `SUBTAP_COLOR` file:
 
 ```YAML
-label: "\e[38;5;166m"
+label1: "\e[38;5;166m"
 ```
 
 Here are the defaults for **16-color** terminals:
 
 ```YAML
-pass: "\e[32m"
-root-fail: "\e[97m\e[101m"
-fail: "\e[31m"
-found: "\e[103m"
-wanted: "\e[106m"
-same: "\e[47m"
-bad: "\e[31m"
-good: "\e[32m"
-label: "\e[90m"
+pass: "\e[32m" # dark green text
+root-fail: "\e[97m\e[101m" # bright white on bright red background
+fail: "\e[31m" # dark red text
+found: "\e[103m" # bright yellow background
+wanted: "\e[106m" # bright cyan background
+same: "\e[47m" # light gray background
+bad: "\e[31m" # dark red text
+good: "\e[32m" # dark green text
+label1: "" # default text color
+label2: "\e[90m" # gray text
 ```
 
 Here are the defaults for **256-color** terminals:
 
 ```YAML
-pass: "\e[38;5;022m"
-root-fail: "\e[38;5;124m\e[48;5;224m"
-fail: "\e[31m"
-found: "\e[48;5;225m"
-wanted: "\e[48;5;194m"
-same: "\e[48;5;230m"
-bad: "\e[31m"
-good: "\e[38;5;022m"
-label: "\e[38;5;242m"
+pass: "\e[38;5;022m" # dark green text
+root-fail: "\e[38;5;124m\e[48;5;224m" # dark red on light red
+fail: "\e[31m" # dark red text
+found: "\e[48;5;225m" # light pink background
+wanted: "\e[48;5;194m" # light green background
+same: "\e[48;5;230m" # light yellow background
+bad: "\e[31m" # dark red text
+good: "\e[38;5;022m" # dark green text
+label1: "" # default text color
+label2: "\e[38;5;242m" # gray text
 ```
 
 These default colors are designed for a white background.

@@ -18,7 +18,7 @@ var callStack = require('../lib/call_stack');
 var WANTED_WIDTH = "wanted: ".length;
 var LABEL_DIFFS = 'diffs:';
 var LABEL_NO_DIFFS = 'noDiffs:';
-var EMPH_LABELS = ['compare', 'diff', 'diffs'];
+var PRIMARY_LABELS = ['compare', 'diff', 'diffs'];
 var DIFF_NOTICE = "^ deltas change wanted into found";
 
 var REGEX_STRING_ESC = xregexp('["\\p{C}\\\\]', 'g');
@@ -38,30 +38,33 @@ var REGEX_FUNCTION_SIG = new RegExp("^function *(?:"+ REGEX_JS_TERM +" *)?"+
 // 'same' - style of background for a non-differing diff line
 // 'bad' - style for marking found text that was not wanted
 // 'good' - style for marking wanted text that was not found
-// 'label' - style for a secondary YAML label
+// 'label1' - style for a primary YAML label
+// 'label2' - style for a secondary YAML label
 
 var COLORMAP_16 = {
-    'bad': '\x1b[31m', // dark red text
-    'fail': '\x1b[31m', // dark red text
-    'root-fail': '\x1b[97m\x1b[101m', // bright white on bright red background
-    'found': '\x1b[103m', // bright yellow background
-    'good': '\x1b[32m', // dark green text
-    'label': '\x1b[90m', // light gray text
     'pass': '\x1b[32m', // dark green text
+    'root-fail': '\x1b[97m\x1b[101m', // bright white on bright red background
+    'fail': '\x1b[31m', // dark red text
+    'found': '\x1b[103m', // bright yellow background
+    'wanted': '\x1b[106m', // bright cyan background
     'same': '\x1b[47m', // light gray background
-    'wanted': '\x1b[106m' // bright cyan background
+    'bad': '\x1b[31m', // dark red text
+    'good': '\x1b[32m', // dark green text
+    'label1': '', // default text color
+    'label2': '\x1b[90m' // gray text
 };
 
 var COLORMAP_256 = {
-    'bad': '\x1b[31m', // dark red text
-    'fail': '\x1b[31m', // dark red text
-    'root-fail': '\x1b[38;5;124m\x1b[48;5;224m', // dark red on light red
-    'found': '\x1b[48;5;225m', // light pink background
-    'good': '\x1b[38;5;022m', // dark green text
-    'label': '\x1b[38;5;242m', // gray text
     'pass': '\x1b[38;5;022m', // dark green text
+    'root-fail': '\x1b[38;5;124m\x1b[48;5;224m', // dark red on light red
+    'fail': '\x1b[31m', // dark red text
+    'found': '\x1b[48;5;225m', // light pink background
+    'wanted': '\x1b[48;5;194m', // light green background
     'same': '\x1b[48;5;230m', // light yellow background
-    'wanted': '\x1b[48;5;194m' // light green background
+    'bad': '\x1b[31m', // dark red text
+    'good': '\x1b[38;5;022m', // dark green text
+    'label1': '', // default text color
+    'label2': '\x1b[38;5;242m' // gray text
 };
 
 //// PRIVATE CONFIGURATION ////////////////////////////////////////////////////
@@ -277,13 +280,13 @@ BaseReport.prototype._createResult = function (label, property, value) {
     return result;
 };
 
-BaseReport.prototype._dimRootLabels = function (text) {
+BaseReport.prototype._colorLabels = function (text) {
     var self= this;
     return text.replace(/^([^: ]+):( *[|>][^\n]*)?/gm, function (match) {
         var label = match.substring(0, match.indexOf(':'));
-        if (EMPH_LABELS.indexOf(label) >= 0)
-            return match;
-        return self._maker.color('label', match);
+        if (PRIMARY_LABELS.indexOf(label) >= 0)
+            return self._maker.color('label1', match);
+        return self._maker.color('label2', match);
     });
 };
 
@@ -602,7 +605,7 @@ BaseReport.prototype._printFailedAssertion = function (
             indent: this._tabSize,
             lineWidth: this._minResultsMargin - indentLevel*this._tabSize
         });
-        diagText = this._dimRootLabels(diagText);
+        diagText = this._colorLabels(diagText);
         this._maker.multiline(indentLevel, indentLevel, diagText);
         this._maker.blankLine(1);
     }
@@ -619,7 +622,8 @@ BaseReport.prototype._printInterleavedDiffs = function(
     else {
         if (actual.val === '' && expected.val === '') {
             // skip out with a shorthand representation
-            return this._maker.line(indentLevel, LABEL_NO_DIFFS +' '+
+            return this._maker.line(indentLevel,
+                    this._maker.color('label1', LABEL_NO_DIFFS) +' '+
                         this._maker.color('same', '""'));
         }
         deltas = diff.diffLines(expected.val, actual.val);
@@ -638,7 +642,8 @@ BaseReport.prototype._printInterleavedDiffs = function(
     // that a prior diff line also does not end with a LF. The presence
     // of a LF is instead indicated via BaseReport.SYMBOL_NEWLINE.
 
-    this._maker.line(indentLevel++, label + this._yamlMark(delta.value));
+    this._maker.line(indentLevel++,
+            this._maker.color('label1', label + this._yamlMark(delta.value)));
     
     // Print the line differences in the string representations. The diff
     // utilities always lists lines removed from the expected value before
@@ -681,7 +686,7 @@ BaseReport.prototype._printInterleavedDiffs = function(
     
     // Print a note explaining the notation.
     
-    this._maker.line(indentLevel, this._maker.color('label', DIFF_NOTICE));
+    this._maker.line(indentLevel, this._maker.color('label2', DIFF_NOTICE));
 };
 
 BaseReport.prototype._printMultilineValue = function (
@@ -692,7 +697,8 @@ BaseReport.prototype._printMultilineValue = function (
     var resultsWidth = this._getResultsWidth(leftMargin);
     var text = this._maker.colorWrap(styleID, value, resultsWidth);
     
-    this._maker.line(indentLevel, typedValue.label + this._yamlMark(value));
+    this._maker.line(indentLevel, this._maker.color('label1',
+            typedValue.label + this._yamlMark(value)));
     this._maker.multiline(indentLevel + 1, indentLevel + 1, text);
 };
 
@@ -713,7 +719,8 @@ BaseReport.prototype._printSingleLineValue = function (
                 value += this._color(styleID, ' '); // may have \x1b
         }
     }
-    this._maker.multiline(indentLevel, indentLevel + 1, label +
+    this._maker.multiline(indentLevel, indentLevel + 1,
+        this._maker.color('label1', label) +
         this._maker.colorWrap(styleID, value, resultsWidth, '',
                 resultsWidth - firstLineWidth));
 };
