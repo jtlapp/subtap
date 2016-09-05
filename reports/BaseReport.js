@@ -338,14 +338,15 @@ BaseReport.prototype._getResultsWidth = function (leftMargin) {
 BaseReport.prototype._highlightDiff = function (
         bkgStyleID, styleID, typedValue, diffIndex, diffLength)
 {
-    var s = typedValue.val.substr(0, diffIndex);
-    var diff = typedValue.val.substr(diffIndex, diffLength);
-    var afterDiff = typedValue.val.substr(diffIndex + diffLength);
-
     // don't allow a trialing LF to be embedded between escape sequences,
     // where LineMaker won't know to strip it for following printed text.
-    if (afterDiff[afterDiff.length - 1] === "\n")
-        afterDiff = afterDiff.substr(0, afterDiff.length - 1);
+    var value = typedValue.val;
+    if (value[value.length - 1] === "\n")
+        value = value.substr(0, value.length - 1);
+
+    var s = value.substr(0, diffIndex);
+    var diff = value.substr(diffIndex, diffLength);
+    var afterDiff = value.substr(diffIndex + diffLength);
 
     if (diffLength > 0) {
         diff = diff.substr(0, diffLength);
@@ -367,6 +368,7 @@ BaseReport.prototype._highlightDiff = function (
     }
     if (afterDiff !== '')
         s += this._maker.color(bkgStyleID, afterDiff);
+        
     typedValue.val = s;
 };
 
