@@ -74,7 +74,7 @@ var minimistConfig = {
     boolean: [ 'b', 'c', 'd', 'e', 'f', 'h' ],
     string: [ 'mark', 'node-arg', 'r', 'wrap' ],
     default: {
-        mark: 'BCR:BC', // how to mark differences
+        mark: 'BCF:CR', // how to mark differences
         t: 3000, // heartbeat timeout millis
         tab: 2, // tab size
         wrap: '20:80' // <minimum width>:<minimum margin>
@@ -181,7 +181,7 @@ else {
 // Validate and retrieve the difference mark flags
 
 options.mark = options.mark.toUpperCase();
-if (!/^[BCR_]+(:[BCR_]+)?$/.test(options.mark)) {
+if (!/^[BCFR_]+(:[BCFR_]+)?$/.test(options.mark)) {
     exitWithUserError(
             "--mark flags must be one or more of the characters BCR_");
 }
@@ -191,7 +191,8 @@ if (matches.length === 1)
 var markFlags = matches[options.diff ? 1 : 0];
 var boldDiffText = optionTools.getFlag(markFlags, 'B');
 var colorDiffText = optionTools.getFlag(markFlags, 'C');
-var reverseFirstDiff = optionTools.getFlag(markFlags, 'R');
+var reverseFirstCharDiff = optionTools.getFlag(markFlags, 'F');
+var reverseFirstLineDiff = optionTools.getFlag(markFlags, 'R');
 
 // Validate the tests to run and determine last test number selected
     
@@ -221,15 +222,8 @@ var childEnv = (options.bail ? { TAP_BAIL: '1' } : {});
 
 // Locate the installation of the tap module that these test files will use. We need to tweak loads of this particular installation.
 
-var tapPath;
-try {
-    tapPath = resolveModule.sync('tap', { basedir: cwd });
-    require(tapPath);
-}
-catch(err) {
-    tapPath = path.resolve(__dirname, '..');
-    require(tapPath); // assume testing subtap module itself
-}
+tapPath = resolveModule.sync('tap', { basedir: cwd });
+require(tapPath); // throws an exception if tap can't be located
 
 // Grab the factory method for the printer indicated by outputFormat.
 
@@ -286,7 +280,7 @@ runNextFile(); // run first file; each subsequent file runs after prev closes
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
 function exitWithTestError(stack) {
-    var callInfo = callStack.getDeepestCallInfo(stack);
+    var callInfo = callStack.getCallSourceInfo(stack);
     console.error("");
     if (callInfo !== null) {
         console.error(callInfo.file +":"+ callInfo.line +":"+ callInfo.column);
@@ -315,7 +309,8 @@ function makePrettyPrinter(reportClass) {
         funcs: options['full-functions'],
         boldDiffText: boldDiffText,
         colorDiffText: colorDiffText,
-        reverseFirstDiff: reverseFirstDiff,
+        reverseFirstCharDiff: reverseFirstCharDiff,
+        reverseFirstLineDiff: reverseFirstLineDiff,
         interleaveDiffs: options.diff,
         canonical: canonical
     }));

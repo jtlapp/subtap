@@ -16,6 +16,18 @@ When the found and wanted values of a test assertion differ, `subtap` can emphas
 
 This tool only works with tests that employ the [`tap` module](https://github.com/tapjs/node-tap), because its primary purpose is to extend the functionality of `tap`. You may use the `--tap` option to direct TAP output from this tool to a prettifier or TAP-analysis tool of your choice.
 
+## Advantages
+
+`subtap` makes root subtests the units of test instead of whole files. It runs assertions found on the root test, of course, but the following advantages become available by organizing assertions into subtests and using `subtap`:
+
+- Because `subtap` assigns a test number to each root subtest, you need only remember a subtest number to rerun it, instead of having to remember and type (or copy-and-paste) a filename.
+- You can decide which root subtests to rerun soley on the basis of their descriptive names; you don't have to decide whether it's reasonable to rerun all of the subtests in its file based on the more cryptic filename.
+- Being able to isolate one root subtest at a time reduces the need to copy-and-paste entire tests into new files to debug them.
+- If multiple people are working on a problem, instead of having to communicate a filename or a test name, you need only communicate a test number. This assumes that both parties have identical copies of the test suite, because otherwise the test numbers might differ.
+- Instead of trying to only group subtests together in a file that you're willing to always run together, you have more freedom to organize subtests into files according to logical association, facilitating maintenance.
+
+_CAVEAT_: When using `subtap` to glob across multiple test files, test numbers depend on the order in which the files load. This order should be consistent from run-to-run on the same machine, at least until tests are added or deleted or files are renamed. Order may vary from machine to machine, depending on their file systems and on the order in which the files occur in the file system.
+
 ## Installation
 
 To install the `subtap` command globally:
@@ -99,11 +111,12 @@ isolate and focus on problematic root subtests.
                        to flags. --mark=<f> sets flags <f> for all difference
                        comparisons. --mark=<f>:<g> sets flags <f> for comparing
                        consecutive values and flags <g> for comparing adjacent
-                       diff lines (see -d, --diff). (default --mark=BCR:BC)
+                       diff lines (see -d, --diff). (default --mark=BCF:CR)
                        
                          B: bold (differing text shown in bold)
                          C: color (differing text shown in color)
-                         R: reverse-video the first different character
+                         F: reverse-video the first different character
+                         R: reverse-video the difference between first lines
                          _: turn off flags (e.g. --mark=BR:_)
 
   --node-arg=<arg>     Pass <arg> to the node process in which the test file
@@ -126,6 +139,7 @@ isolate and focus on problematic root subtests.
 - Long lines are wrapped at the configured wrap margin and continued on the next line with a preceding `…` character, allowing long lines to respect indentation.
 - The `strictSame()` and `strictNotSame()` assertions compare object types. `subtap` shows object class names in an `_instanceof_` property when showing differences between found and wanted values of these assertions.
 - The values of found and wanted objects are displayed in Javascript syntax. This is JSON syntax with the property name unquoted where possible.
+- The label `notWanted` replaces the awkward label `doNotWant` in assertions that require different found/wanted values.
 - When printing the difference between found and wanted values as interleaving diff lines and the two values are identical, the YAML label is `noDiffs` instead of `diffs` to help keep you from looking for differences.
 
 ## Environment Variables

@@ -73,7 +73,8 @@ var COLORMAP_256 = {
 // _showFunctionSource - whether to output entire source of functions
 // _boldDiffText - whether to make the found/wanted text that differs bold
 // _colorDiffText - whether to color the found/wanted text that differs
-// _reverseFirstDiff - whether to reverse-video the first character that differs between found and wanted text
+// _reverseFirstCharDiff - whether to reverse-video the first character that differs between found and wanted text
+// _reverseFirstLineDiff - whether to reverse-video the first-line difference between found and wanted text
 // _interleaveDiffs - whether to interleave differing found/wanted lines
 // _maker - instance of LineMaker used for formatting output
 // _indent - string of spaces by which to indent each JSON nesting
@@ -100,7 +101,8 @@ var COLORMAP_256 = {
  *   - showFunctionSource: whether to output entire source of functions found in result differences (defaults to false)
  *   - boldDiffText: whether to make the found/wanted text that differs bold (defaults to false)
  *   - colorDiffText: whether to color the found/wanted text that differs
- *   - reverseFirstDiff: whether to reverse-video the first character that differs between found and wanted text
+ *   - reverseFirstCharDiff: whether to reverse-video the first character that differs between found and wanted text
+*    - reverseFirstLineDiff: whether to reverse-video the first-line difference between found and wanted text
  *   - interleaveDiffs: whether to interleave differing found/wanted lines
  *   - canonical: whether to visibly render control codes in output (defaults to false)
  *   - closeStream: whether to call end() on the output stream (defaults to false, which is usual for stdout)
@@ -117,7 +119,8 @@ function BaseReport(outputStream, options) {
     this._showFunctionSource = options.showFunctionSource || false;
     this._boldDiffText = options.boldDiffText,
     this._colorDiffText = options.colorDiffText,
-    this._reverseFirstDiff = options.reverseFirstDiff,
+    this._reverseFirstCharDiff = options.reverseFirstCharDiff,
+    this._reverseFirstLineDiff = options.reverseFirstLineDiff,
     this._interleaveDiffs = options.interleaveDiffs,
     this._closeStream = options.closeStream || false;
     
@@ -330,57 +333,85 @@ BaseReport.prototype._getResultsWidth = function (leftMargin) {
 };
 
 BaseReport.prototype._highlightDiff = function (
-        bkgStyleID, styleID, typedValue, i)
+        bkgStyleID, styleID, typedValue, diffIndex, diffLength)
 {
-    var s = typedValue.val.substr(0, i);
-    var diff = typedValue.val.substr(i);
-    var quote = null;
-    if (typedValue.quoted) {
-        quote = diff[diff.length - 1];
-        diff = diff.substr(0, diff.length - 1);
+    var s = typedValue.val.substr(0, diffIndex);
+    var diff = typedValue.val.substr(diffIndex, diffLength);
+    var afterDiff = typedValue.val.substr(diffIndex + diffLength);
+
+    // don't allow a trialing LF to be embedded between escape sequences,
+    // where LineMaker won't know to strip it for following printed text.
+    if (afterDiff[afterDiff.length - 1] === "\n")
+        afterDiff = afterDiff.substr(0, afterDiff.length - 1);
+
+    if (diffLength > 0) {
+        diff = diff.substr(0, diffLength);
+        var reversed = null;
+        var forceColor = false;
+        if (this._reverseFirstLineDiff) {
+            reversed = diff;
+            forceColor = true;
+        }
+        else if (this._reverseFirstCharDiff) {
+            reversed = diff[0];
+            if (reversed === "\\")
+                reversed += diff[1];
+        }
+        if (reversed !== null) {
+            s += this._colorDiff(styleID,
+                    this._maker.style('reverse', reversed));
+            diff = diff.substr(reversed.length);
+        }
+        if (diff.length > 0)
+            s += this._color(bkgStyleID, this._colorDiff(styleID, diff));
     }
-    else {
-        // don't allow a trialing LF to be embedded between escape sequences,
-        // where LineMaker won't know to strip it for following printed text.
-        if (diff[diff.length - 1] === "\n")
-            diff = diff.substr(0, diff.length - 1);
-    }
-    if (diff.length > 0 && this._reverseFirstDiff) {
-        var firstChar = diff[0];
-        if (firstChar === "\\")
-            firstChar += diff[1];
-        s += this._colorDiff(styleID, this._maker.style('reverse', firstChar));
-        diff = this._color(bkgStyleID, diff.substr(firstChar.length));
-    }
-    if (diff.length > 0)
-        s += this._colorDiff(styleID, diff);
-    if (quote)
-        s += this._maker.color(bkgStyleID, quote);
+    if (afterDiff !== '')
+        s += this._maker.color(bkgStyleID, afterDiff);
     typedValue.val = s;
 };
 
-BaseReport.prototype._highlightDiffs = function (actual, expected) {
-
+BaseReport.prototype._highlightDiffs = function (
+        actual, expected, limitToFirstLine)
+{
     // find the index of the first different position, if any
 
     var baseLength = actual.val.length;
     if (baseLength > expected.val.length)
         baseLength = expected.val.length;
-    var i = 0;
-    while (i < baseLength && actual.val[i] === expected.val[i])
-        ++i;
+    var diffIndex = 0;
+    while (diffIndex < baseLength &&
+            actual.val[diffIndex] === expected.val[diffIndex])
+        ++diffIndex;
         
     // return early if the values are the same
 
-    if (i === actual.val.length && i === expected.val.length)
+    if (diffIndex === actual.val.length && diffIndex === expected.val.length)
         return; // values are the same
+        
+    // determine the ends of the common remainder of the differing lines
     
+    var actualIndex = actual.val.indexOf("\n", diffIndex);
+    if (!limitToFirstLine || actualIndex < 0)
+        actualIndex = actual.val.length;
+    var expectedIndex = expected.val.indexOf("\n", diffIndex);
+    if (!limitToFirstLine || expectedIndex < 0)
+        expectedIndex = expected.val.length;
+    
+    if (diffIndex < actual.val.length && diffIndex < expected.val.length) {
+        while (actual.val[--actualIndex] === expected.val[--expectedIndex])
+            ;
+    }
+            
     // highlight text from the point at which it differs
     
-    if (i < actual.val.length)
-        this._highlightDiff('found', 'bad', actual, i);
-    if (i < expected.val.length)
-        this._highlightDiff('wanted', 'good', expected, i);
+    if (diffIndex < actual.val.length) {
+        this._highlightDiff('found', 'bad', actual, diffIndex,
+                actualIndex - diffIndex + 1);
+    }
+    if (diffIndex < expected.val.length) {
+        this._highlightDiff('wanted', 'good', expected, diffIndex,
+                expectedIndex - diffIndex + 1);
+    }
 };
 
 BaseReport.prototype._makeAssertion = function (assert) {
@@ -528,7 +559,7 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
 
         if (actual.type === expected.type &&
                 (actual.type === 'string' || actual.type === 'object'))
-            this._highlightDiffs(actual, expected);
+            this._highlightDiffs(actual, expected, false);
         
         if (actual.multiline || expected.multiline) {
             this._printMultilineValue('found', indentLevel, actual);
@@ -633,7 +664,7 @@ BaseReport.prototype._printInterleavedDiffs = function(
                     nextDeltaValue = this._normalizeJSON(nextDeltaValue);
                 var partialActual = { val: nextDeltaValue };
                 var partialExpected = { val: value };
-                this._highlightDiffs(partialActual, partialExpected);
+                this._highlightDiffs(partialActual, partialExpected, true);
                 value = partialExpected.val;
                 nextDeltaValue = partialActual.val;
             }
