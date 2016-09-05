@@ -350,11 +350,8 @@ BaseReport.prototype._highlightDiff = function (
     if (diffLength > 0) {
         diff = diff.substr(0, diffLength);
         var reversed = null;
-        var forceColor = false;
-        if (this._reverseFirstLineDiff) {
+        if (this._reverseFirstLineDiff)
             reversed = diff;
-            forceColor = true;
-        }
         else if (this._reverseFirstCharDiff) {
             reversed = diff[0];
             if (reversed === "\\")
@@ -404,14 +401,22 @@ BaseReport.prototype._highlightDiffs = function (
         while (actual.val[--actualIndex] === expected.val[--expectedIndex])
             ;
     }
+    
+    // If it is ambiguous whether the changed character is at the start
+    // or the end of the sequence, place it at the end.
+    
+    if (actualIndex < diffIndex - 1)
+        expectedIndex += diffIndex - actualIndex - 1;
+    else if (expectedIndex < diffIndex - 1)
+        actualIndex += diffIndex - expectedIndex - 1;
             
     // highlight text from the point at which it differs
     
-    if (diffIndex < actual.val.length) {
+    if (diffIndex < actual.val.length && actualIndex >= diffIndex) {
         this._highlightDiff('found', 'bad', actual, diffIndex,
                 actualIndex - diffIndex + 1);
     }
-    if (diffIndex < expected.val.length) {
+    if (diffIndex < expected.val.length && expectedIndex >= diffIndex) {
         this._highlightDiff('wanted', 'good', expected, diffIndex,
                 expectedIndex - diffIndex + 1);
     }
