@@ -20,10 +20,10 @@ var minimist = require('minimist');
 var glob = require('glob');
 var fork = require('child_process').fork;
 var yaml = require('js-yaml');
+var optionhelp = require('option-help');
 var _ = require('lodash');
 
 var subtap = require("../");
-var optionTools = require("../lib/option_tools");
 var callStack = require("../lib/call_stack");
 
 //// CONSTANTS ////////////////////////////////////////////////////////////////
@@ -60,7 +60,7 @@ if (_.isString(process.env[ENV_DEFAULT_ARGS])) {
 }
 var argv = argv.concat(process.argv.slice(2));
 
-var minimistConfig = {
+var configOptions = {
     alias: {
         b: 'bail',
         c: 'color',
@@ -80,45 +80,45 @@ var minimistConfig = {
         wrap: '20:80' // <minimum width>:<minimum margin>
     }
 };
-var options = minimist(argv, minimistConfig);
-// console.log(JSON.stringify(options, null, "  "));
+var args = minimist(argv, configOptions);
+// console.log(JSON.stringify(args, null, "  "));
 // process.exit(0);
 
-if (options.help) {
+if (args.help) {
     require("../lib/help");
     process.exit(0);
 }
 
-optionTools.keepLastOfDuplicates(options, ['node-arg']);
-optionTools.applyBooleanOffSwitch(options, minimistConfig);
-var outputFormat = optionTools.lastOfMutuallyExclusive(argv, OUTPUT_FORMATS);
+optionhelp.keepLastOfDuplicates(args, ['node-arg']);
+optionhelp.applyBooleanOffSwitch(args, configOptions);
+var outputFormat = optionhelp.lastOfMutuallyExclusive(argv, OUTPUT_FORMATS);
 if (outputFormat === null)
     outputFormat = DEFAULT_OUTPUT_FORMAT;
 
 // Validate argument values generically where possible
 
 ['d', 'e', 'f'].forEach(function (option) {
-    if (!_.isBoolean(options[option])) {
+    if (!_.isBoolean(args[option])) {
         exitWithUserError(
             "-"+ option +" is a boolean switch that doesn't take a value");
     }
 });
 
 ['b', 'c'].forEach(function (option) {
-    if (!_.isBoolean(options[option]) && !_.isInteger(options[option])) {
+    if (!_.isBoolean(args[option]) && !_.isInteger(args[option])) {
         exitWithUserError(
             "-"+ option +" is a switch that optionally takes an integer");
     }
 });
 
 ['t', 'tab'].forEach(function (option) {
-    if (!_.isInteger(options[option]))
+    if (!_.isInteger(args[option]))
         exitWithUserError("-"+ option +" must take an integer value");
 });
 
 // Get color mode and whether canonicalizing output
 
-var colorMode = options.color;
+var colorMode = args.color;
 if (colorMode === true)
     exitWithUserError("-cN option requires a color mode number (e.g. -c1)");
 if (colorMode === false)
@@ -154,57 +154,57 @@ if (_.isString(process.env[ENV_COLOR_FILE])) {
 // Get maximum number of tests that may fail
 
 var maxFailedTests = 0; // assume no maximum
-if (_.isNumber(options.bail)) {
-    maxFailedTests = options.bail;
-    options.bail = false;
+if (_.isNumber(args.bail)) {
+    maxFailedTests = args.bail;
+    args.bail = false;
 }
 
 // Validate tab size
 
-if (options.tab === 0)
+if (args.tab === 0)
     exitWithUserError("--tab N option requires a tab size N >= 1");
     
 // Get the minimum results width and margin
     
-var matches = options.wrap.match(/^(\d+):(\d+)$/);
+var matches = args.wrap.match(/^(\d+):(\d+)$/);
 if (!matches) {
     exitWithUserError(
             "--wrap=M:N option requires two colon-separated integers");
 }
 else {
-    options.minResultsWidth = parseInt(matches[1]);
-    options.minResultsMargin = parseInt(matches[2]);
-    if (options.minResultsWidth < 2)
+    args.minResultsWidth = parseInt(matches[1]);
+    args.minResultsMargin = parseInt(matches[2]);
+    if (args.minResultsWidth < 2)
         exitWithUserError("--wrap=M:N option requires M >= 2");
 }
 
 // Validate and retrieve the difference mark flags
 
-options.mark = options.mark.toUpperCase();
-if (!/^[BCFR_]+(:[BCFR_]+)?$/.test(options.mark)) {
+args.mark = args.mark.toUpperCase();
+if (!/^[BCFR_]+(:[BCFR_]+)?$/.test(args.mark)) {
     exitWithUserError(
             "--mark flags must be one or more of the characters BCR_");
 }
-matches = options.mark.match(/[^:]+/g);
+matches = args.mark.match(/[^:]+/g);
 if (matches.length === 1)
     matches.push(matches[0]);
-var markFlags = matches[options.diff ? 1 : 0];
-var boldDiffText = optionTools.getFlag(markFlags, 'B');
-var colorDiffText = optionTools.getFlag(markFlags, 'C');
-var reverseFirstCharDiff = optionTools.getFlag(markFlags, 'F');
-var reverseFirstLineDiff = optionTools.getFlag(markFlags, 'R');
+var markFlags = matches[args.diff ? 1 : 0];
+var boldDiffText = optionhelp.getFlag(markFlags, 'B');
+var colorDiffText = optionhelp.getFlag(markFlags, 'C');
+var reverseFirstCharDiff = optionhelp.getFlag(markFlags, 'F');
+var reverseFirstLineDiff = optionhelp.getFlag(markFlags, 'R');
 
 // Validate the tests to run and determine last test number selected
     
 var lastSelectedTest = 0;
-if (_.isUndefined(options.run))
-    options.run = '';
+if (_.isUndefined(args.run))
+    args.run = '';
 else {
-    if (!REGEX_VALID_SUBSET.test(options.run)) {
+    if (!REGEX_VALID_SUBSET.test(args.run)) {
         exitWithUserError("-r requires one or more comma-delimited numbers "+
                 "or ranges (\"N..M\")");
     }
-    var endRanges = options.run.match(REGEX_RANGE_ENDS);
+    var endRanges = args.run.match(REGEX_RANGE_ENDS);
     endRanges.forEach(function (endRange) {
         var selectedTest = parseInt(endRange);
         if (selectedTest === 0)
@@ -218,7 +218,7 @@ else {
 
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
 var childPath = path.resolve(__dirname, "_runfile.js");
-var childEnv = (options.bail ? { TAP_BAIL: '1' } : {});
+var childEnv = (args.bail ? { TAP_BAIL: '1' } : {});
 
 // Locate the installation of the tap module that these test files will use. We need to tweak loads of this particular installation.
 
@@ -257,14 +257,14 @@ if (!makePrinter)
 
 // If no files are specified, assume all .js in ./test and ./tests.
 
-if (options._.length === 0) {
-    options._.push("test/*.js");
-    options._.push("tests/*.js");
+if (args._.length === 0) {
+    args._.push("test/*.js");
+    args._.push("tests/*.js");
 }
 
 // Run the test files strictly sequentially so that, for a given set of test files, root subtests have consistent numbers from run-to-run.
 
-options._.forEach(function (pattern) {
+args._.forEach(function (pattern) {
     glob.sync(pattern, {
         nodir: true
     }).forEach(function (file) {
@@ -300,29 +300,29 @@ function exitWithUserError(message) {
 
 function makePrettyPrinter(reportClass) {
     return new subtap.PrettyPrinter(new reportClass(process.stdout, {
-        tabSize: options.tab,
+        tabSize: args.tab,
         styleMode: colorMode,
         colorOverrides: colorOverrides,
-        minResultsWidth: options.minResultsWidth,
-        minResultsMargin: options.minResultsMargin,
+        minResultsWidth: args.minResultsWidth,
+        minResultsMargin: args.minResultsMargin,
         truncateTraceAtPath: childPath,
-        funcs: options['full-functions'],
+        funcs: args['full-functions'],
         boldDiffText: boldDiffText,
         colorDiffText: colorDiffText,
         reverseFirstCharDiff: reverseFirstCharDiff,
         reverseFirstLineDiff: reverseFirstLineDiff,
-        interleaveDiffs: options.diff,
+        interleaveDiffs: args.diff,
         canonical: canonical
     }));
 }
 
 function runNextFile() {
     var childOptions = { env: childEnv };
-    if (!_.isUndefined(options['node-arg'])) {
-        if (_.isArray(options['node-arg']))
-            childOptions.execArgv = options['node-arg'];
+    if (!_.isUndefined(args['node-arg'])) {
+        if (_.isArray(args['node-arg']))
+            childOptions.execArgv = args['node-arg'];
         else
-            childOptions.execArgv = [ options['node-arg'] ];
+            childOptions.execArgv = [ args['node-arg'] ];
     }
     var child = fork(childPath, [tapPath], childOptions);
     
@@ -333,10 +333,10 @@ function runNextFile() {
                 child.send({
                     priorTestNumber: testNumber,
                     testFileRegexStr: testFileRegexStr,
-                    selectedTests: options.run,
+                    selectedTests: args.run,
                     failedTests: failedTests,
                     maxFailedTests: maxFailedTests,
-                    logExceptions: options['log-exceptions'],
+                    logExceptions: args['log-exceptions'],
                     filePath: filePaths[fileIndex]
                 });
                 break;
@@ -399,7 +399,7 @@ function runNextFile() {
     });
     
     gotPulse = true;
-    if (options.timeout > 0)
+    if (args.timeout > 0)
         awaitHeartbeat(child);
 }
 
@@ -411,12 +411,12 @@ function awaitHeartbeat(child) {
             if (filePath.indexOf(cwd) === 0)
                 filePath = filePath.substr(cwd.length + 1);
             writeErrorMessage(filePath +" timed out after "+
-                    options.timeout +" millis of inactivity");
+                    args.timeout +" millis of inactivity");
             process.exit(1);
         }
         gotPulse = false;
         awaitHeartbeat(child);
-    }, options.timeout);
+    }, args.timeout);
 }
 
 function writeErrorMessage(message) {

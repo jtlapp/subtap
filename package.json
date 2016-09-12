@@ -33,6 +33,7 @@
     "js-yaml": "^3.6.1",
     "lodash": "^4.14.2",
     "minimist": "^1.2.0",
+    "option-help": "^0.5.2",
     "resolve": "^1.1.7",
     "tap-parser": "^1.2.2",
     "xregexp": "^3.1.1"
