@@ -27,6 +27,7 @@ var testSelectors = null;
 var testFileRegex; // regex for pulling test file and line number from Error
 var maxFailedTests; // max number of failed tests allowed in parent run
 var logExceptions; // whether to log exceptions in TAP or end test run
+var debugBreak; // whether to break at start of each root subtest
 
 //// STATE ////////////////////////////////////////////////////////////////////
 
@@ -66,7 +67,7 @@ tap.test = function subtapRootSubtest(name, extra, cb, deferred) {
             t.tearDown(tearDownTest.bind(t));
             t._subtapped = true;
         }
-        return runTest(cb.bind(this, t), true);
+        return runUserCode(runRootSubtest.bind(this, cb, t), true);
     }, deferred);
 };
 
@@ -93,8 +94,9 @@ process.on('message', function (config) {
     logExceptions = config.logExceptions;
     if (config.selectedTests !== '')
         selectTests(config.selectedTests);
+    debugBreak = config.debugBreak;
     
-    runTest(function() {
+    runUserCode(function() {
         require(config.filePath);
         
         // installing a tearDown handler induces tap autoend,
@@ -164,7 +166,13 @@ function isSelectedTest(testNumber) {
     return false;
 }
 
-function runTest(testFunc, allowExceptionLogging) {
+function runRootSubtest(rootSubtest, t) {
+    if (debugBreak) debugger;
+    rootSubtest(t); // step into here to debug the subtest
+    'continue debugger to reach next root subtest';
+}
+
+function runUserCode(testFunc, allowExceptionLogging) {
     if (allowExceptionLogging && logExceptions)
         return testFunc();
     try {

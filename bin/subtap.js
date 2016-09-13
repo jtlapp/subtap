@@ -4,7 +4,7 @@
 subtap executable command line tool
 ******************************************************************************/
 
-// To debug, put child on different debug port via --node-arg=--debug=5859
+// To debug, put child on different debug port via --narg=--debug=5859
 
 // At present, subtap only works with tap-parser versions prior to 2.0.0. tap 7.0.0 changed the indentation levels of TAP subtest comments, and tap-parser 2.0.0 requires the new indentation.
 // It was an option to upgrade subtap to tap-parser 2.0.0 and force subtap users to use tap 7.0.0 or later, but tap-parser 2.0.0 also interprets bail-outs issued during tear-down as belonging to anonymous tests. It is possible to work around this by having _runfile emit a TAP comment signifying a subtap-specific abort, but then subtap would not properly signal the fact that the test aborted in its --tap output. In order to allow -bN to signal "Bail out!" using --tap, subtap must remain with a pre-2.0.0 tap-parser. 
@@ -13,15 +13,17 @@ subtap executable command line tool
 //// MODULES //////////////////////////////////////////////////////////////////
 
 var Writable = require('stream').Writable;
+var MemoryStream = require('memory-streams').WritableStream;
 var fs = require('fs');
 var resolveModule = require('resolve');
 var path = require('path');
 var minimist = require('minimist');
 var glob = require('glob');
-var fork = require('child_process').fork;
+var spawn = require('child_process').spawn;
 var yaml = require('js-yaml');
 var optionhelp = require('option-help');
 var _ = require('lodash');
+var nodeCleanup = require('node-cleanup');
 
 var subtap = require("../");
 var callStack = require("../lib/call_stack");
@@ -34,6 +36,8 @@ var OUTPUT_FORMATS = [ 'all', 'fail', 'json', 'tally', 'tap' ];
 var DEFAULT_OUTPUT_FORMAT = 'tally';
 var REGEX_VALID_SUBSET = /^\d+(\.\.\d+)?(,(\d+(\.\.\d+)?))*$/;
 var REGEX_RANGE_ENDS = /\d+(?!\.)/g;
+var STDIO_DESTINATIONS = [ 'each', 'end', 'mix', 'none' ];
+var DEFAULT_DEBUG_PORT = 5858;
 
 //// STATE ////////////////////////////////////////////////////////////////////
 
@@ -47,6 +51,13 @@ var bailed = false; // whether test file bailed out
 var skippingChunks = false; // whether skipping TAP output
 var gotPulse; // whether child process was recently active
 var timer; // heartbeat timer monitoring child activity
+var debugPort; // node debugging port, or 0 if not debugging
+var debugBreak; // whether breaking at start of each root subtest
+
+var child = null; // currently spawned child process or null
+var stderrStream = null; // stream for writing file's stderr channel output
+var stdoutStream = null; // stream for writing file's stdout channel output
+var savedStdio = []; // array of saved tuples { channel, file, output }
 
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
@@ -72,11 +83,22 @@ var configOptions = {
         t: 'timeout'
     },
     boolean: [ 'b', 'c', 'd', 'e', 'f', 'h' ],
-    string: [ 'mark', 'node-arg', 'r', 'wrap' ],
+    string: [
+        'debug',
+        'debug-brk',
+        'mark',
+        'narg',
+        'r',
+        'stderr',
+        'stdout',
+        'wrap'
+    ],
     default: {
         mark: 'BCF:CR', // how to mark differences
         t: 3000, // heartbeat timeout millis
         tab: 2, // tab size
+        stderr: 'each',
+        stdout: 'end',
         wrap: '20:80' // <minimum width>:<minimum margin>
     }
 };
@@ -89,7 +111,7 @@ if (args.help) {
     process.exit(0);
 }
 
-optionhelp.keepLastOfDuplicates(args, ['node-arg']);
+optionhelp.keepLastOfDuplicates(args, ['narg']);
 optionhelp.applyBooleanOffSwitch(args, configOptions);
 var outputFormat = optionhelp.lastOfMutuallyExclusive(argv, OUTPUT_FORMATS);
 if (outputFormat === null)
@@ -112,8 +134,11 @@ if (outputFormat === null)
 });
 
 ['t', 'tab'].forEach(function (option) {
-    if (!_.isInteger(args[option]))
+    if (!_.isInteger(args[option])) {
+        if (option.length > 1)
+            option = '-'+ option;
         exitWithUserError("-"+ option +" must take an integer value");
+    }
 });
 
 // Get color mode and whether canonicalizing output
@@ -213,12 +238,51 @@ else {
             lastSelectedTest = selectedTest;
     });
 }
-    
+
+// Validate the destinations for stderr and stdout
+
+args.stderr = normalizeStdioOption('stderr', args.stderr);
+if (args.stderr[0] === '/') {
+    stderrStream = fs.createWriteStream(args.stderr);
+    args.stderr = 'file';
+}
+
+args.stdout = normalizeStdioOption('stdout', args.stdout);
+if (args.stdout[0] === '/') {
+    stdoutStream = fs.createWriteStream(args.stdout);
+    args.stdout = 'file';
+}
+
+// Parse and validate debug switches
+
+['debug', 'debug-brk'].forEach(function (option) {
+    if (_.isUndefined(args[option]))
+        args[option] = 0;
+    else if (args[option] === '')
+        args[option] = DEFAULT_DEBUG_PORT;
+    else {
+        args[option] = parseInt(args[option]);
+        if (isNaN(args[option]))
+            exitWithUserError("--"+ option +" optionally takes a port number");
+    }
+});
+if (args['debug'] !== 0 && args['debug-brk'] !== 0)
+    exitWithUserError("can't specify both --debug and --debug-brk");
+debugPort = args['debug'] + args['debug-brk']; // at most one is non-zero
+if (debugPort)
+    args.timeout = 0; // disable timer when debugging
+debugBreak = (args['debug-brk'] > 0);
+
 //// TEST RUNNER //////////////////////////////////////////////////////////////
 
 var testFileRegexStr = " \\("+ _.escapeRegExp(cwd) +"/(.+:[0-9]+):";
 var childPath = path.resolve(__dirname, "_runfile.js");
-var childEnv = (args.bail ? { TAP_BAIL: '1' } : {});
+var childEnv = {};
+Object.keys(process.env).forEach(function (key) {
+    childEnv[key] = process.env[key];
+});
+if (args.bail)
+    childEnv.TAP_BAIL = '1';
 
 // Locate the installation of the tap module that these test files will use. We need to tweak loads of this particular installation.
 
@@ -277,7 +341,56 @@ if (filePaths.length === 0)
 var printer = makePrinter();
 runNextFile(); // run first file; each subsequent file runs after prev closes
 
+nodeCleanup(function() {
+
+    // Terminate child if left hanging (e.g. ctrl-c from debugger)
+    
+    if (child !== null)
+        child.kill('SIGKILL');
+        
+    // Properly end any open writable streams.
+    
+    printer.end();
+    if (stdoutStream !== null)
+        stdoutStream.end();
+    if (stderrStream !== null)
+        stderrStream.end();
+        
+    // Write any stdout and stderr that was accumulated
+    
+    if (savedStdio.length > 0)
+        writeSavedOutput();
+});
+
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
+
+function awaitHeartbeat(child) {
+    timer = setTimeout(function() {
+        if (!gotPulse) {
+            child.kill('SIGKILL');
+            var filePath = filePaths[fileIndex];
+            if (filePath.indexOf(cwd) === 0)
+                filePath = filePath.substr(cwd.length + 1);
+            writeErrorMessage(filePath +" timed out after "+
+                    args.timeout +" millis of inactivity");
+            process.exit(1);
+        }
+        gotPulse = false;
+        awaitHeartbeat(child);
+    }, args.timeout);
+}
+
+function directChildOutput(dest, childStdio, stdioStream, processStdio) {
+    if (dest === 'each' || dest === 'end') {
+        stdioStream = new MemoryStream();
+        childStdio.pipe(stdioStream);
+    }
+    else if (dest === 'mix')
+        childStdio.pipe(processStdio);
+    else if (dest === 'file')
+        childStdio.pipe(stdioStream);
+    return stdioStream;
+}
 
 function exitWithTestError(stack) {
     var callInfo = callStack.getCallSourceInfo(stack);
@@ -316,15 +429,45 @@ function makePrettyPrinter(reportClass) {
     }));
 }
 
+function normalizeStdioOption(stdio, optionValue) {
+    optionValue = String(optionValue).toLowerCase();
+    if (STDIO_DESTINATIONS.indexOf(optionValue) >= 0)
+        return optionValue;
+    if (optionValue[0] !== '/' && optionValue[0] !== '.')
+        exitWithUserError("invalid --"+ stdio +" value (-h for help)");
+    return path.resolve(cwd, optionValue);
+}
+
 function runNextFile() {
-    var childOptions = { env: childEnv };
-    if (!_.isUndefined(args['node-arg'])) {
-        if (_.isArray(args['node-arg']))
-            childOptions.execArgv = args['node-arg'];
+
+    // Spawn a child process to perform the test, with appropriate options.
+
+    var childArgs = [];
+    if (!_.isUndefined(args['narg'])) {
+        if (_.isArray(args['narg']))
+            childArgs = args['narg'];
         else
-            childOptions.execArgv = [ args['node-arg'] ];
+            childArgs.push(args['narg']);
     }
-    var child = fork(childPath, [tapPath], childOptions);
+    if (debugPort > 0) {
+        childArgs.push('--expose-debug-as=v8debug');
+        childArgs.push('--debug='+ debugPort);
+    }
+    childArgs = childArgs.concat([ childPath, tapPath ]);
+    var childOptions = {
+        env: childEnv,
+        stdio: ['inherit', 'pipe', 'pipe', 'ipc']
+    };
+    child = spawn(process.execPath, childArgs, childOptions);
+    
+    // Buffer or redirect the child stderr and stdout streams.
+    
+    stdoutStream = directChildOutput(args.stdout, child.stdout, stdoutStream,
+                        process.stdout);
+    stderrStream = directChildOutput(args.stderr, child.stderr, stderrStream,
+                        process.stderr);
+
+    // Install handlers for child process state messages.
     
     child.on('message', function (msg) {
         gotPulse = true;
@@ -337,7 +480,8 @@ function runNextFile() {
                     failedTests: failedTests,
                     maxFailedTests: maxFailedTests,
                     logExceptions: args['log-exceptions'],
-                    filePath: filePaths[fileIndex]
+                    filePath: filePaths[fileIndex],
+                    debugBreak: debugBreak
                 });
                 break;
             case 'chunk':
@@ -372,15 +516,28 @@ function runNextFile() {
             case 'done':
                 clearTimeout(timer);
                 child.kill('SIGKILL');
+                child = null;
                 testNumber = msg.lastTestNumber;
                 failedTests = msg.failedTests;
                 break;
         }
     });
     
+    // Install handler for completion of the child process.
+    
     child.on('exit', function (exitCode) {
         // exitCode == 1 if any test fails, so can't bail run
         clearTimeout(timer); // child may exit without messaging parent
+        
+        // Output or save stderr and stdout that is not already piped.
+        
+        stdoutStream =
+            saveTestStdio('stdout', args.stdout, process.stdout, stdoutStream);
+        stderrStream =
+            saveTestStdio('stderr', args.stderr, process.stderr, stderrStream);
+        
+        // Run the next test if there is another and we haven't bailed.
+        
         if (!bailed) {
             if (++fileIndex < filePaths.length)
                 return runNextFile();
@@ -395,30 +552,66 @@ function runNextFile() {
                 exitWithUserError("root subtest"+ range +" not found");
             }
         }
+/*
+        // TBD: commented out pending confirmation that cleanup() works
+        
+        // Properly end any open writable streams.
+        
         printer.end();
+        if (stdoutStream !== null)
+            stdoutStream.end();
+        if (stderrStream !== null)
+            stderrStream.end();
+            
+        // Write any stdout and stderr that was accumulated
+        
+        if (savedStdio.length > 0)
+            writeSavedOutput();
+*/
     });
+    
+    // Begin the heartbeat timeout to catch child hanging.
     
     gotPulse = true;
     if (args.timeout > 0)
         awaitHeartbeat(child);
 }
 
-function awaitHeartbeat(child) {
-    timer = setTimeout(function() {
-        if (!gotPulse) {
-            child.kill('SIGKILL');
-            var filePath = filePaths[fileIndex];
-            if (filePath.indexOf(cwd) === 0)
-                filePath = filePath.substr(cwd.length + 1);
-            writeErrorMessage(filePath +" timed out after "+
-                    args.timeout +" millis of inactivity");
-            process.exit(1);
-        }
-        gotPulse = false;
-        awaitHeartbeat(child);
-    }, args.timeout);
+function saveTestStdio(channel, dest, processStdio, stdioStream) {
+    if (dest === 'each') {
+        writeChildOutput(processStdio, channel, filePaths[fileIndex],
+                stdioStream.toString())
+        stdioStream = null;
+    }
+    else if (dest === 'end') {
+        savedStdio.push({
+            file: filePaths[fileIndex],
+            channel: channel,
+            output: stdioStream.toString()
+        });
+        stdioStream = null;
+    }
+    return stdioStream;
 }
 
 function writeErrorMessage(message) {
     process.stdout.write("*** "+ message +" ***\n\n");
+}
+
+function writeSavedOutput() {
+    var stdio;
+    savedStdio.forEach(function (tuple) {
+        stdio = (tuple.channel === 'stdout' ? process.stdout : process.stderr);
+        writeChildOutput(stdio, tuple.channel, tuple.file, tuple.output);
+    });
+}
+
+function writeChildOutput(processStdio, channel, filePath, output) {
+    if (output.length === 0)
+        return;
+    processStdio.write("---- BEGIN "+ channel +" ("+ filePath +") ----\n");
+    processStdio.write(output);
+    if (output[output.length - 1] !== "\n")
+        processStdio.write("\n"); // guarantee END starts on a new line
+    processStdio.write("---- END "+ channel +" ----\n");
 }
