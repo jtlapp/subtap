@@ -24,8 +24,7 @@ This test runner is for debugging. It employs [`tap`](https://github.com/tapjs/n
 - Have a debugger automatically break at the start of each root subtest.
 - Bail out after a specified number of root subtests fail.
 - Optionally exit when your code throws an unexpected exception, instead of having it logged as a test failure and plowing on with testing.
-- Collect your test file's `stdout` for output after runner output.
-- Direct test `stdout` to a file that delimits output by test file name.
+- Collect your test file's `stdout` for output after runner output or direct `stdout` to a file that delimits output by test file name.
 - Clearly highlight non-printing character differences in test results.
 - Assign colors and result difference emphasis that makes debugging fun.
 
