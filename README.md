@@ -12,7 +12,7 @@ This is a beta release of `subtap` for the purpose of getting initial feedback. 
 
 `subtap` organizes debugging around root subtests. A "root subtest" is a test whose parent is a file's root `tap` test. `subtap` numbers the root subtests across all of the test files. You can rerun root subtests by indicating their numbers, have the debugger break at the start of each root subtest, and bail out of the test runner after a given number of root subtests failures.
 
-You control `subtap`'s output format. You can have it filter subtests for TAP output or you can pretty-print YAML output, optionally showing test results in JSON. The pretty-printing strives to clearly show differences between the found and wanted values of test assertions, including aligning values for vertical comparison and highlighting differences in non-printable characters. You can also show differences as interleaving diff lines. (See some [example output](#example-output).)
+You control `subtap`'s output format. You can have it filter subtests for TAP output or you can pretty-print YAML output, optionally showing test results in JSON. The pretty-printing strives to clearly show differences between the found and wanted values of test assertions, including aligning values for vertical comparison and highlighting differences in non-printable characters. You can also show differences as interleaving diff lines. ([example output](#example-output))
 
 This tool only works with tests that employ the [`tap`](https://github.com/tapjs/node-tap) module.
 
@@ -39,7 +39,7 @@ This test runner is for debugging. It employs [`tap`](https://github.com/tapjs/n
 - If multiple people are working on a problem, instead of having to communicate a filename or a test name, you need only communicate a test number. This assumes that both parties have identical copies of the test suite, because otherwise the test numbers might differ.
 - Instead of trying to only group subtests together in a file that you're willing to always run together, you have more freedom to organize subtests into files according to logical association, facilitating maintenance.
 
-*CAVEAT*: When using `subtap` to glob across multiple test files, test numbers depend on the order in which the files load. This order should be consistent from run-to-run until tests are added or deleted or files are renamed. Order may vary from machine to machine, depending on their file systems and on the order in which the files occur in the file system.
+*CAVEAT*: When using `subtap` to glob across multiple test files, test numbers depend on the order in which files load. This order should be consistent from run-to-run until tests are added or deleted or files are renamed. Order may vary from machine to machine, depending on their file systems and on the order in which the files occur in the file system.
 
 ## Installation
 
@@ -163,7 +163,7 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
 
 ## Running a Debugger
 
-You can connect a debugger to `subtap` to step through tests as they run. Use `--debug` to break only at breakpoints you set, such as by breaking on the `debugger` statement. Use `--debug-brk` to break at the start of each root subtest as well. By combining `--debug-brk` with `-r<m>` you can walk the debugger through only root subtests of your choosing.
+You can connect a debugger to `subtap` to step through tests as they run. Use `--debug-brk` to break at the start of each root subtest. Use `--debug` to break only at your breakpoints, such as those of `debugger` statements. By combining `--debug-brk` with `-r<m>` you can walk the debugger through only root subtests of your choosing.
 
 The debugger runs as a separate process from `subtap`. The following steps explain the use of `subtap` with node's built-in debugger:
 
