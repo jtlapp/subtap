@@ -58,7 +58,7 @@ npm install subtap --save-dev
 ## Usage
 
 ```
-$ subtap [options] [file-patterns]
+subtap [options] [file-patterns]
 ```
 
 Both `options` and `file-patterns` are optional. `file-patterns` is one or more glob patterns. When `file-patterns` is not given, the patterns `test/*.js` and `tests/*.js` are used. `subtap` runs each file matching each pattern in a separate node process, reads the TAP output, and outputs a report spanning all the files.
