@@ -1,22 +1,35 @@
 # subtap
 
-A test runner for [`tap`](https://github.com/tapjs/node-tap) that selectively runs subtests
+a test runner for [`tap`](https://github.com/tapjs/node-tap) that selectively runs subtests
 
 ## BETA RELEASE
 
-This is a beta release of `subtap` for the purpose of getting initial feedback. Once I have some confidence that the generated output is reasonable and relatively stable, I'll produce a test suite for it and release version 1.0.0. At that point it will be open to contributions from others.
+This is a beta release of `subtap` for the purpose of getting initial feedback. Once I have some confidence that the generated output is reasonable and relatively stable, I'll produce a test suite for it and release version 1.0.0.
 
 ## Overview
 
 `subtap` is a test runner for debugging test suites by selectively running subtests. It is optionally also a TAP pretty-printer that emphasizes making even subtle differences between found and wanted values obvious at a glance.
 
-`subtap` numbers the root subtests across all of the test files. A "root subtest" is a test whose parent is the root `tap` test of a file. The `-r` option provides test numbers and restricts the run to only those tests. The user can also control whether the test run exits when a subtest throws an exception and how many root subtests may fail before bailing out of the test run.
+`subtap` organizes debugging around root subtests. A "root subtest" is a test whose parent is a file's root `tap` test. `subtap` numbers the root subtests across all of the test files. You can rerun root subtests by indicating their numbers, have the debugger break at the start of each root subtest, and bail out of the test runner after a given number of root subtests failures.
 
-When the found and wanted values of a test assertion differ, `subtap` can emphasize the first differing character and the differing text. It shows LFs (`\n`) in text and trailing spaces as visible characters, and it aligns values for proper vertical comparison. The differences between values may also be shown as interleaving diff lines.
+You control `subtap`'s output format. You can have it filter subtests for TAP output or you can pretty-print YAML output, optionally showing test results in JSON. The pretty-printing strives to clearly show differences between the found and wanted values of test assertions, including aligning values for vertical comparison and highlighting differences in non-printable characters. You can also show differences as interleaving diff lines. (See some [example output](#example-output).)
 
-This tool only works with tests that employ the [`tap` module](https://github.com/tapjs/node-tap), because its primary purpose is to extend the functionality of `tap`. You may use the `--tap` option to direct TAP output from this tool to a prettifier or TAP-analysis tool of your choice.
+This tool only works with tests that employ the [`tap`](https://github.com/tapjs/node-tap) module.
 
-## Advantages
+## Why another test runner?
+
+This test runner is for debugging. It employs [`tap`](https://github.com/tapjs/node-tap), so you can run your tests with `tap` too. But `subtap` is for debugging. With `subtap` you can:
+
+- Select subtests to rerun by number, even across files, running no others.
+- Have a debugger automatically break at the start of each root subtest.
+- Bail out after a specified number of root subtests fail.
+- Optionally exit when your code throws an unexpected exception, instead of having it logged as a test failure and plowing on with testing.
+- Collect your test file's `stdout` for output after runner output.
+- Direct test `stdout` to a file that delimits output by test file name.
+- Clearly highlight non-printing character differences in test results.
+- Assign colors and result difference emphasis that makes debugging fun.
+
+## Advantages of Root Subtests
 
 `subtap` makes root subtests the units of test instead of whole files. It runs assertions found on the root test, of course, but the following advantages become available by organizing assertions into subtests and using `subtap`:
 
@@ -26,7 +39,7 @@ This tool only works with tests that employ the [`tap` module](https://github.co
 - If multiple people are working on a problem, instead of having to communicate a filename or a test name, you need only communicate a test number. This assumes that both parties have identical copies of the test suite, because otherwise the test numbers might differ.
 - Instead of trying to only group subtests together in a file that you're willing to always run together, you have more freedom to organize subtests into files according to logical association, facilitating maintenance.
 
-_CAVEAT_: When using `subtap` to glob across multiple test files, test numbers depend on the order in which the files load. This order should be consistent from run-to-run on the same machine, at least until tests are added or deleted or files are renamed. Order may vary from machine to machine, depending on their file systems and on the order in which the files occur in the file system.
+*CAVEAT*: When using `subtap` to glob across multiple test files, test numbers depend on the order in which the files load. This order should be consistent from run-to-run until tests are added or deleted or files are renamed. Order may vary from machine to machine, depending on their file systems and on the order in which the files occur in the file system.
 
 ## Installation
 
@@ -45,7 +58,7 @@ npm install subtap --save-dev
 ## Usage
 
 ```
-  subtap [options] [file-patterns]
+$ subtap [options] [file-patterns]
 ```
 
 Both `options` and `file-patterns` are optional. `file-patterns` is one or more glob patterns. When `file-patterns` is not given, the patterns `test/*.js` and `tests/*.js` are used. `subtap` runs each file matching each pattern in a separate node process, reads the TAP output, and outputs a report spanning all the files.
@@ -148,22 +161,20 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
                        values at less than M chars wide. (default --wrap=20:80)
 ```
 
-## Debugging Tests
+## Running a Debugger
 
-`subtap` facilitates debugging both by means of writing notes to `stdout` and by means of running the debugger during test runs.
-
-It is not normally reasonable for code to write to `stdout` from within a test runner, because the writes get mixed with the runner output and may not even correlate with adjacent runner output. Using `--stderr` and `--stdout`, `subtap` allows you to control how it collects test file output and where it presents it. Perhaps most usefully, `--stdout=end` collects the `stdout` of all of the tests and only dumps it to the terminal after all tests have finished running. This dump sections and labels the output by file and output channel.
-
-You may also connect a debugger to `subtap` to step through tests as they run. Use `--debug` to break only at breakpoints you set, such as by breaking on the `debugger` statement. Use `--debug-brk` to break at the start of each root subtest. By combining `--debug-brk` with `-r<m>` you can walk the debugger through only root subtests of your choosing. Of course, `--debug-brk` will also break at other breakpoints you set.
+You can connect a debugger to `subtap` to step through tests as they run. Use `--debug` to break only at breakpoints you set, such as by breaking on the `debugger` statement. Use `--debug-brk` to break at the start of each root subtest as well. By combining `--debug-brk` with `-r<m>` you can walk the debugger through only root subtests of your choosing.
 
 The debugger runs as a separate process from `subtap`. The following steps explain the use of `subtap` with node's built-in debugger:
 
-1. First run a test suite using either `--debug` or `--debug-brk`. By default, these options listen for the debugger on port 5858. You will only immediately see the `Debugger listening on port 5858` line when using `--stderr=mix`; otherwise this line gets stored for output later. If you ran with `--debug-brk`, the terminal shows you the name of the first test that will run.
+1. First run `subtap` using either `--debug` or `--debug-brk`. By default, these options listen for the debugger on port 5858. You will only see the line telling you this when using `--stderr=mix`, as otherwise the line gets stored for output later. If you ran with `--debug-brk` and any format but `--fail`, the terminal shows you the name of the subtest that is about to run.
 2. From a second terminal window, connect to `subtap` with the command `node debug localhost:5858`. You'll get only the response `connecting to localhost:5858 ... ok`. Apparently due to a bug in the node debugger, the source code context does not show immediately for our use case.
 3. Type 'n' or 's' to advance to the next line of code. The debugger now properly shows the source code context.
-4. If you ran with `--debug-brk` the debugger will now be on the line `rootSubtest(t)`. This test's name is shown in `subtap` terminal window. Step into this line with 's' to enter the source code for this subtest.
-5. Step through the debugger to debug your test. When you are ready to move on to the next test, type 'c' to continue the debugger. If you ran with `--debug-brk`, the debugger will automatically break at the next test, with `subtap` showing you the name of that test. If you ran with `--debug`, you'll stop wherever your next breakpoint is.
-6. Proceed from subtest to subtest debugging as you please. When a test file completes and `subtap` moves on to another test file, the debugger disconnects and reports `program terminated`. Just enter `run` into the debugger to resume testing. However, once again you will be presented a response without source code context. Loop back to step 3 to continue debugging.
+4. If you ran with `--debug-brk` the debugger will now be on the line `rootSubtest(t)`. Step into this line with 's' to enter the source code for this subtest.
+5. Step through the debugger to debug your test. When you are ready to move on to the next test, type 'c' to continue the debugger. If you ran with `--debug-brk`, the debugger will automatically break at the next root subtest. If you ran with `--debug`, you'll stop wherever your next breakpoint is.
+6. Proceed from subtest to subtest debugging as you please. When a test file completes and `subtap` moves on to another test file, the debugger disconnects and reports `program terminated`. Enter `run` into the debugger to resume testing, though you may need to enter *ctrl-C* to get the debugger into the right context for this. Loop back to step 3 to continue debugging.
+
+As you proceed using any output format but `--fail`, the terminal running `subtap` shows the current test filename and subtest name, as well as the descriptions and results of previously completed assertions.
 
 ## Other Special Features
 
