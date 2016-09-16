@@ -106,6 +106,9 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
   --debug-brk[=<p>]    Receive debugger client on port <p> (default 5858) with
                        breakpoints at start of each root subtest. Sets -t0.
 
+  --debug-port=<p>     Set default debug port to <p> instead of 5858. Useful in
+                       SUBTAP_ARGS to shorten --debug and --debug-brk arguments.
+
   -e --log-exceptions  Catch and report subtest exceptions as failed assertions.
                        Root test exceptions always terminate the run because
                        they interrupt the numbering of root subtests.
@@ -114,6 +117,23 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
                        function source code in addition to the signature.
 
   -h --help            Show this help information.
+
+  --mark=<f>[:<g>]     Mark differences between found & wanted values according
+                       to flags. --mark=<f> sets flags <f> for all difference
+                       comparisons. --mark=<f>:<g> sets flags <f> for comparing
+                       consecutive values and flags <g> for comparing adjacent
+                       diff lines (see -d, --diff). (default --mark=BCF:CR)
+                       
+                         B: bold (differing text shown in bold)
+                         C: color (differing text shown in color)
+                         F: reverse-video the first different character
+                         R: reverse-video the entire difference (restricted
+                             to first line difference when using --diff)
+                         _: turn off flags (e.g. --mark=BR:_)
+
+  --narg=<arg>         Pass <arg> to the node executable that runs the test
+                       file. <arg> is NOT added to the file's process.argv. Use
+                       --narg repeatedly to pass multiple arguments. See --targ.
 
   -r<m> --run=<m>      Only run the tests that <m> lists. <m> is a subtest
                        number (e.g. -r10) or a range of subtest numbers (e.g.
@@ -136,26 +156,6 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
 
   -tN --timeout=N      Timeout after N milliseconds of inactivity. To disable
                        the timeout, set N to 0. (default -t3000, or 3 seconds)
-
-  --debug-port=<p>     Set default debug port to <p> instead of 5858. Useful in
-                       SUBTAP_ARGS to shorten --debug and --debug-brk arguments.
-
-  --mark=<f>[:<g>]     Mark differences between found & wanted values according
-                       to flags. --mark=<f> sets flags <f> for all difference
-                       comparisons. --mark=<f>:<g> sets flags <f> for comparing
-                       consecutive values and flags <g> for comparing adjacent
-                       diff lines (see -d, --diff). (default --mark=BCF:CR)
-                       
-                         B: bold (differing text shown in bold)
-                         C: color (differing text shown in color)
-                         F: reverse-video the first different character
-                         R: reverse-video the entire difference (restricted
-                             to first line difference when using --diff)
-                         _: turn off flags (e.g. --mark=BR:_)
-
-  --narg=<arg>         Pass <arg> to the node executable that runs the test
-                       file. <arg> is NOT added to the file's process.argv. Use
-                       --narg repeatedly to pass multiple arguments. See --targ.
 
   --tab=N              Indent each nested level by N spaces. (default --tab=2)
 
@@ -190,11 +190,11 @@ Here are the steps for using `subtap` with node's built-in debug client:
 It is quite a bit easier to debug with [node-inspector](https://github.com/node-inspector/node-inspector). The steps are analogous to those for using node's built-in client:
 
 1. First run `subtap` using either `--debug` or `--debug-brk`, but use a port other than 5858, such as `--debug=5859`. The line that tells you the debugger is running only shows when using `--stderr=mix`, as otherwise the line gets stored for output later. If you ran with `--debug-brk` and any format but `--fail`, the terminal shows you the name of the subtest that is about to run.
-2. From a second terminal window, run node-inspector with the command `node-debug`. Ignore its messages about running a debugger on a port. Then point Chrome or Opera to `http://localhost:8080?port=5859`. Apparently due to a bug ([see my report](https://github.com/nodejs/node/issues/8565)), the debugger may or may not show the correct source code at this point, but don't worry about it.
+2. From a second terminal window, run node-inspector with the command `node-debug`. Ignore its messages about running a debugger on a port. Then point Chrome or Opera to `http://localhost:8080?port=5859`. Apparently due to a bug ([see my report](https://github.com/nodejs/node/issues/8565)), the debugger may or may not show the correct source code at this point, but don't worry.
 3. Step over (F10) or into (F11) to advance to the next line of code. The debugger now properly shows the source code context.
 4. If you ran with `--debug-brk`, the debugger will now be on the line `rootSubtest(t)`. Step into this line (F11) to enter the source code for this subtest.
 5. Step through the debugger to debug your test. When you are ready to move on to the next test, resume (F8) the debugger. If you ran with `--debug-brk`, the debugger will automatically break at the next root subtest. If you ran with `--debug`, you'll stop wherever your next breakpoint is.
-6. Proceed from subtest to subtest debugging as you please. When a test file completes and `subtap` moves on to another test file, the debugger gets interrupted and automatically refreshes the page. After reloading, you should see source again. If not, the page refreshed before `subtap` could launch the next test, so manually refresh the page. Due to the bug in node, the debugger may show the wrong source line. Loop back to step 3 to continue debugging.
+6. Proceed from subtest to subtest debugging as you please. When a test file completes and `subtap` moves on to another test file, the debugger gets interrupted and automatically reloads. After reloading, you should see source again. If not, the page reloaded before `subtap` could launch the next test, so manually refresh the page. Due to the bug in node, the debugger may show the wrong source line. Loop back to step 3 to continue debugging.
 
 ## Other Special Features
 
