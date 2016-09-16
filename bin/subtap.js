@@ -356,9 +356,8 @@ nodeCleanup(function() {
     if (child !== null)
         child.kill('SIGKILL');
         
-    // Properly end any open writable streams.
+    // Properly end open writable streams.
     
-    printer.end();
     if (stdoutStream !== null)
         stdoutStream.end();
     if (stderrStream !== null)
@@ -565,22 +564,10 @@ function runNextFile() {
                 exitWithUserError("root subtest"+ range +" not found");
             }
         }
-/*
-        // TBD: commented out pending confirmation that cleanup() works
         
-        // Properly end any open writable streams.
+        // Abort output of tap parser and pretty printer.
         
         printer.end();
-        if (stdoutStream !== null)
-            stdoutStream.end();
-        if (stderrStream !== null)
-            stderrStream.end();
-            
-        // Write any stdout and stderr that was accumulated
-        
-        if (savedStdio.length > 0)
-            writeSavedOutput();
-*/
     });
     
     // Begin the heartbeat timeout to catch child hanging.
