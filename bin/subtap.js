@@ -86,11 +86,13 @@ var configOptions = {
     string: [
         'debug',
         'debug-brk',
+        'debug-port',
         'mark',
         'narg',
         'r',
         'stderr',
         'stdout',
+        'targ',
         'wrap'
     ],
     default: {
@@ -111,7 +113,7 @@ if (args.help) {
     process.exit(0);
 }
 
-optionhelp.keepLastOfDuplicates(args, ['narg']);
+optionhelp.keepLastOfDuplicates(args, ['narg', 'targ']);
 optionhelp.applyBooleanOffSwitch(args, configOptions);
 var outputFormat = optionhelp.lastOfMutuallyExclusive(argv, OUTPUT_FORMATS);
 if (outputFormat === null)
@@ -255,11 +257,17 @@ if (args.stdout[0] === '/') {
 
 // Parse and validate debug switches
 
+var defaultDebugPort = DEFAULT_DEBUG_PORT;
+if(!_.isUndefined(args['debug-port'])) {
+    defaultDebugPort = parseInt(args['debug-port']);
+    if (isNaN(defaultDebugPort))
+        exitWithUserError("--debug-port requires a port number");
+}
 ['debug', 'debug-brk'].forEach(function (option) {
     if (_.isUndefined(args[option]))
         args[option] = 0;
     else if (args[option] === '')
-        args[option] = DEFAULT_DEBUG_PORT;
+        args[option] = defaultDebugPort;
     else {
         args[option] = parseInt(args[option]);
         if (isNaN(args[option]))
@@ -449,11 +457,15 @@ function runNextFile() {
         else
             childArgs.push(args['narg']);
     }
-    if (debugPort > 0) {
-        childArgs.push('--expose-debug-as=v8debug');
+    if (debugPort > 0)
         childArgs.push('--debug='+ debugPort);
+    childArgs.push(childPath);
+    if (!_.isUndefined(args['targ'])) {
+        if (_.isArray(args['targ']))
+            childArgs.concat(args['targ']);
+        else
+            childArgs.push(args['targ']);
     }
-    childArgs = childArgs.concat([ childPath, tapPath ]);
     var childOptions = {
         env: childEnv,
         stdio: ['inherit', 'pipe', 'pipe', 'ipc']
@@ -474,6 +486,7 @@ function runNextFile() {
         switch (msg.event) {
             case 'ready':
                 child.send({
+                    tapPath: tapPath,
                     priorTestNumber: testNumber,
                     testFileRegexStr: testFileRegexStr,
                     selectedTests: args.run,

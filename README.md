@@ -10,7 +10,7 @@ This is a beta release of `subtap` for the purpose of getting initial feedback. 
 
 `subtap` is a test runner for debugging test suites by selectively running subtests. It is optionally also a TAP pretty-printer that emphasizes making even subtle differences between found and wanted values obvious at a glance.
 
-`subtap` organizes debugging around root subtests. A "root subtest" is a test whose parent is a file's root `tap` test. `subtap` numbers the root subtests across all of the test files. You can rerun root subtests by indicating their numbers, have the debugger break at the start of each root subtest, and bail out of the test runner after a given number of root subtests failures.
+`subtap` organizes debugging around root subtests. A "root subtest" is a test whose parent is a file's root `tap` test. `subtap` numbers the root subtests across all of the test files. You can rerun root subtests by indicating their numbers, have the debugger break at the start of each root subtest, and bail out of the test runner after a given number of root subtest failures.
 
 You control `subtap`'s output format. You can have it filter subtests for TAP output or you can pretty-print YAML output, optionally showing test results in JSON. The pretty-printing strives to clearly show differences between the found and wanted values of test assertions, including aligning values for vertical comparison and highlighting differences in non-printable characters. You can also show differences as interleaving diff lines. ([example output](#example-output))
 
@@ -26,7 +26,7 @@ This test runner is for debugging. It employs [`tap`](https://github.com/tapjs/n
 - Optionally exit when your code throws an unexpected exception, instead of having it logged as a test failure and plowing on with testing.
 - Collect test file `stdout` for output after runner output or for writing to a file, delimiting it by test filename.
 - Clearly highlight non-printing character differences in test results.
-- Assign colors and result difference emphasis that makes debugging fun.
+- Assign colors and result difference emphasis that make debugging fun.
 
 ## Advantages of Root Subtests
 
@@ -137,6 +137,9 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
   -tN --timeout=N      Timeout after N milliseconds of inactivity. To disable
                        the timeout, set N to 0. (default -t3000, or 3 seconds)
 
+  --debug-port=<p>     Set default debug port to <p> instead of 5858. Useful in
+                       SUBTAP_ARGS to shorten --debug and --debug-brk arguments.
+
   --mark=<f>[:<g>]     Mark differences between found & wanted values according
                        to flags. --mark=<f> sets flags <f> for all difference
                        comparisons. --mark=<f>:<g> sets flags <f> for comparing
@@ -151,10 +154,13 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
                          _: turn off flags (e.g. --mark=BR:_)
 
   --narg=<arg>         Pass <arg> to the node executable that runs the test
-                       file. The argument is NOT placed in the test file's
-                       process.argv.
+                       file. <arg> is NOT added to the file's process.argv. Use
+                       --narg repeatedly to pass multiple arguments. See --targ.
 
   --tab=N              Indent each nested level by N spaces. (default --tab=2)
+
+  --targ=<arg>         Pass <arg> to the test file(s) via process.argv. Use
+                       --targ repeatedly to pass multiple arguments. See --narg.
 
   --wrap=M:N           Wrap output at column N, but don't wrap found/wanted
                        values at less than M chars wide. (default --wrap=20:80)
@@ -164,16 +170,31 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
 
 You can connect a debugger to `subtap` to step through tests as they run. Use `--debug-brk` to break at the start of each root subtest. Use `--debug` to break only at your breakpoints, such as those of `debugger` statements. By combining `--debug-brk` with `-r<m>` you can walk the debugger through only root subtests of your choosing.
 
-The debugger runs as a separate process from `subtap`. The following steps explain the use of `subtap` with node's built-in debugger:
+The debugger runs as a separate process from `subtap`. By default, node serves the debugger on port 5858. You can select a different port `<p>` using the options `--debug=<p>` or `--debug-brk=<p>`. If you consistently use a different port, you can make your preferred port the default by adding `--debug-port=<p>` to the SUBTAP_ARGS environment variable. For example, placing `--debug-port=5859` in SUBTAP_ARGS would cause `--debug` on the command line to use port 5859, without having to fully specify `--debug=5859`.
+
+As you proceed with debugging using any output format but `--fail`, the terminal running `subtap` shows the current test filename and subtest name, as well as the descriptions and results of previously completed assertions.
+
+### Using the built-in debug client
+
+Here are the steps for using `subtap` with node's built-in debug client:
 
 1. First run `subtap` using either `--debug` or `--debug-brk`. By default, these options listen for the debugger on port 5858. You will only see the line telling you this when using `--stderr=mix`, as otherwise the line gets stored for output later. If you ran with `--debug-brk` and any format but `--fail`, the terminal shows you the name of the subtest that is about to run.
-2. From a second terminal window, connect to `subtap` with the command `node debug localhost:5858`. You'll get only the response `connecting to localhost:5858 ... ok`. Apparently due to a bug in the node debugger, the source code context does not show immediately for our use case.
+2. From a second terminal window, connect to `subtap` with the command `node debug localhost:5858`. You'll get only the response `connecting to localhost:5858 ... ok`. Apparently due to a bug ([see my report](https://github.com/nodejs/node/issues/8565)), the source code context does not show immediately for our use case.
 3. Type 'n' or 's' to advance to the next line of code. The debugger now properly shows the source code context.
-4. If you ran with `--debug-brk` the debugger will now be on the line `rootSubtest(t)`. Step into this line with 's' to enter the source code for this subtest.
+4. If you ran with `--debug-brk`, the debugger will now be on the line `rootSubtest(t)`. Step into this line with 's' to enter the source code for this subtest.
 5. Step through the debugger to debug your test. When you are ready to move on to the next test, type 'c' to continue the debugger. If you ran with `--debug-brk`, the debugger will automatically break at the next root subtest. If you ran with `--debug`, you'll stop wherever your next breakpoint is.
 6. Proceed from subtest to subtest debugging as you please. When a test file completes and `subtap` moves on to another test file, the debugger disconnects and reports `program terminated`. Enter `run` into the debugger to resume testing, though you may need to enter *ctrl-C* to get the debugger into the right context for this. Loop back to step 3 to continue debugging.
 
-As you proceed using any output format but `--fail`, the terminal running `subtap` shows the current test filename and subtest name, as well as the descriptions and results of previously completed assertions.
+### Using node-inspector (aka `node-debug`)
+
+It is quite a bit easier to debug with [node-inspector](https://github.com/node-inspector/node-inspector). The steps are analogous to those for using node's built-in client:
+
+1. First run `subtap` using either `--debug` or `--debug-brk`, but use a port other than 5858, such as `--debug=5859`. The line that tells you the debugger is running only shows when using `--stderr=mix`, as otherwise the line gets stored for output later. If you ran with `--debug-brk` and any format but `--fail`, the terminal shows you the name of the subtest that is about to run.
+2. From a second terminal window, run node-inspector with the command `node-debug`. Ignore its messages about running a debugger on a port. Then point Chrome or Opera to `http://localhost:8080?port=5859`. Apparently due to a bug ([see my report](https://github.com/nodejs/node/issues/8565)), the debugger may or may not show the correct source code at this point, but don't worry about it.
+3. Step over (F10) or into (F11) to advance to the next line of code. The debugger now properly shows the source code context.
+4. If you ran with `--debug-brk`, the debugger will now be on the line `rootSubtest(t)`. Step into this line (F11) to enter the source code for this subtest.
+5. Step through the debugger to debug your test. When you are ready to move on to the next test, resume (F8) the debugger. If you ran with `--debug-brk`, the debugger will automatically break at the next root subtest. If you ran with `--debug`, you'll stop wherever your next breakpoint is.
+6. Proceed from subtest to subtest debugging as you please. When a test file completes and `subtap` moves on to another test file, the debugger gets interrupted and automatically refreshes the page. After reloading, you should see source again. If not, the page refreshed before `subtap` could launch the next test, so manually refresh the page. Due to the bug in node, the debugger may show the wrong source line. Loop back to step 3 to continue debugging.
 
 ## Other Special Features
 

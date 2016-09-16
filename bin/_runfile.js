@@ -1,5 +1,5 @@
 /******************************************************************************
-Runs a single test file in an isolated child process. Takes a single argument containing the path to the node-tap installation to employ.
+Runs a single test file in an isolated child process. Receives configuration via IPC from parent subtap process.
 
 Note: All monkey patches of tap should be done within this file so that they get stripped from stack traces reported in assertion test results.
 ******************************************************************************/
@@ -8,10 +8,8 @@ Note: All monkey patches of tap should be done within this file so that they get
 
 var path = require('path');
 var Writable = require('stream').Writable;
-
-var tapPath = process.argv[2];
-var tap = require(tapPath);
-var tapSynonyms = require(path.resolve(tapPath, '../../lib/synonyms.js'));
+var tap; // caller provides load location
+var tapSynonyms; // caller provides load location
 
 //// CONSTANTS ////////////////////////////////////////////////////////////////
 
@@ -35,56 +33,7 @@ var testNumber; // number of most-recently output root subtest
 var failedTests; // number of failed tests so far in parent run
 var exiting = false; // true to ignore tap compliants on premature exit
 
-//// INSTALLATION /////////////////////////////////////////////////////////////
-
-var testMethod = tap.test;
-tap.test = function subtapRootSubtest(name, extra, cb, deferred) {
-    if (exiting)
-        return;
-    if (!cb) {
-        cb = extra; // cb might still be undefined if a TODO
-        extra = {};
-    }
-    if (!deferred) { // if initial registration
-        if (!isSelectedTest(++testNumber))
-            return;
-
-        name = '['+ testNumber +'] '+ name;
-        
-        // append file name and line number of test to test name
-        var err = new Error();
-        var matches = err.stack.match(testFileRegex);
-        if (matches !== null)
-            name += ' ('+ matches[1] +')';
-    }
-    if (!cb)
-        return testMethod.call(this, name, extra, cb, deferred);
-
-    return testMethod.call(this, name, extra, function (t) {
-        if (exiting)
-            return;
-        if (!t._subtapped) {
-            t.tearDown(tearDownTest.bind(t));
-            t._subtapped = true;
-        }
-        return runUserCode(runRootSubtest.bind(this, cb, t), true);
-    }, deferred);
-};
-
-installTypedAsserts(tap);
-installTypedAsserts(tap.Test.prototype);
-
-tap.pipe(new Writable({
-    write: function(chunk, encoding, done) {
-        if (!exiting) {
-            process.send({
-                event: 'chunk',
-                text: chunk.toString()
-            });
-        }
-        done();
-    }
-}));
+//// MAIN /////////////////////////////////////////////////////////////////////
 
 process.on('message', function (config) {
     testNumber = config.priorTestNumber;
@@ -95,6 +44,8 @@ process.on('message', function (config) {
     if (config.selectedTests !== '')
         selectTests(config.selectedTests);
     debugBreak = config.debugBreak;
+    
+    installTapWithPatches(config.tapPath);
     
     runUserCode(function() {
         require(config.filePath);
@@ -115,7 +66,7 @@ process.on('message', function (config) {
     tap.end();
 });
 
-process.send({ event: 'ready' });
+process.send({ event: 'ready' }); // avoid race condition
 
 // forked child won't automatically exit
 
@@ -131,6 +82,60 @@ function installAssertSynonyms(t, assertName) {
             writable: true
         });
     });
+}
+
+function installTapWithPatches(tapPath) {
+    tap = require(tapPath);
+    tapSynonyms = require(path.resolve(tapPath, '../../lib/synonyms.js'));
+
+    var testMethod = tap.test;
+    tap.test = function subtapRootSubtest(name, extra, cb, deferred) {
+        if (exiting)
+            return;
+        if (!cb) {
+            cb = extra; // cb might still be undefined if a TODO
+            extra = {};
+        }
+        if (!deferred) { // if initial registration
+            if (!isSelectedTest(++testNumber))
+                return;
+
+            name = '['+ testNumber +'] '+ name;
+        
+            // append file name and line number of test to test name
+            var err = new Error();
+            var matches = err.stack.match(testFileRegex);
+            if (matches !== null)
+                name += ' ('+ matches[1] +')';
+        }
+        if (!cb)
+            return testMethod.call(this, name, extra, cb, deferred);
+
+        return testMethod.call(this, name, extra, function (t) {
+            if (exiting)
+                return;
+            if (!t._subtapped) {
+                t.tearDown(tearDownTest.bind(t));
+                t._subtapped = true;
+            }
+            return runUserCode(runRootSubtest.bind(this, cb, t), true);
+        }, deferred);
+    };
+
+    installTypedAsserts(tap);
+    installTypedAsserts(tap.Test.prototype);
+
+    tap.pipe(new Writable({
+        write: function(chunk, encoding, done) {
+            if (!exiting) {
+                process.send({
+                    event: 'chunk',
+                    text: chunk.toString()
+                });
+            }
+            done();
+        }
+    }));
 }
 
 function installTypedAsserts(t) {
@@ -169,7 +174,7 @@ function isSelectedTest(testNumber) {
 function runRootSubtest(rootSubtest, t) {
     if (debugBreak) debugger;
     rootSubtest(t); // step into here to debug the subtest
-    'continue debugger to reach next root subtest';
+    'resume debugger to reach next root subtest';
 }
 
 function runUserCode(testFunc, allowExceptionLogging) {
