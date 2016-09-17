@@ -86,7 +86,6 @@ var configOptions = {
     string: [
         'debug',
         'debug-brk',
-        'debug-port',
         'mark',
         'narg',
         'r',
@@ -96,9 +95,11 @@ var configOptions = {
         'wrap'
     ],
     default: {
+        'debug-port': 5858,
         mark: 'BCF:CR', // how to mark differences
         t: 3000, // heartbeat timeout millis
         tab: 2, // tab size
+        'tap-limit': 32,
         stderr: 'each',
         stdout: 'end',
         wrap: '20:80' // <minimum width>:<minimum margin>
@@ -135,7 +136,7 @@ if (outputFormat === null)
     }
 });
 
-['t', 'tab'].forEach(function (option) {
+['debug-port', 't', 'tab', 'tap-limit'].forEach(function (option) {
     if (!_.isInteger(args[option])) {
         if (option.length > 1)
             option = '-'+ option;
@@ -257,17 +258,11 @@ if (args.stdout[0] === '/') {
 
 // Parse and validate debug switches
 
-var defaultDebugPort = DEFAULT_DEBUG_PORT;
-if(!_.isUndefined(args['debug-port'])) {
-    defaultDebugPort = parseInt(args['debug-port']);
-    if (isNaN(defaultDebugPort))
-        exitWithUserError("--debug-port requires a port number");
-}
 ['debug', 'debug-brk'].forEach(function (option) {
     if (_.isUndefined(args[option]))
         args[option] = 0;
     else if (args[option] === '')
-        args[option] = defaultDebugPort;
+        args[option] = args['debug-port'];
     else {
         args[option] = parseInt(args[option]);
         if (isNaN(args[option]))
@@ -486,6 +481,7 @@ function runNextFile() {
             case 'ready':
                 child.send({
                     tapPath: tapPath,
+                    tapLimit: args['tap-limit']*1024,
                     priorTestNumber: testNumber,
                     testFileRegexStr: testFileRegexStr,
                     selectedTests: args.run,
@@ -498,7 +494,6 @@ function runNextFile() {
                 break;
             case 'chunk':
                 var text = msg.text;
-                // console.log("CHUNK ["+ text +"]");
                 if (/^ *# Subtest:/.test(text)) {
                     // hack to make tap 7.0.0 compatible with tap-parser 1.2.2,
                     // so subtap doesn't have to enforce a version of tap, and

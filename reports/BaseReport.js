@@ -18,7 +18,8 @@ var callStack = require('../lib/call_stack');
 var WANTED_WIDTH = "wanted: ".length;
 var LABEL_DIFFS = 'diffs:';
 var LABEL_NO_DIFFS = 'noDiffs:';
-var PRIMARY_LABELS = ['compare', 'diff', 'diffs'];
+var PRIMARY_LABELS = ['compare', 'diff', 'diffs', 'found', 'wanted', 'noDiffs',
+        'notWanted', 'doNotWant', 'pattern'];
 var DIFF_NOTICE = "^ deltas change wanted into found";
 
 var REGEX_STRING_ESC = xregexp('["\\p{C}\\\\]', 'g');
@@ -157,8 +158,8 @@ BaseReport.SYMBOL_PENDING = '-';
 BaseReport.SYMBOL_PASS = '✓';
 BaseReport.SYMBOL_FAIL = '✗';
 
-BaseReport.SYMBOL_GOOD_LINE = '-'; // '★';
-BaseReport.SYMBOL_BAD_LINE = '+'; // '✗';
+BaseReport.SYMBOL_GOOD_LINE = '- '; // '★ ';
+BaseReport.SYMBOL_BAD_LINE = '+ '; // '✗ ';
 
 BaseReport.SYMBOL_SPACE = '·';
 BaseReport.SYMBOL_NEWLINE = "⏎";
@@ -269,14 +270,33 @@ BaseReport.prototype._colorDiff = function (styleID, text) {
     return text;
 };
 
-BaseReport.prototype._createResult = function (label, property, value) {
+BaseReport.prototype._createResult = function (label, property, diag) {
+    var value = diag[property];
+    var type = typeof value;
+    
+    // Temporarily remove line numbers for comparison purposes.
+    
+    var lineNumbers = null;
+    if (type === 'string' && typeof diag.lineNumberDelim === 'string') {
+        lineNumbers = [];
+        var escLineDelim = _.escapeRegExp(diag.lineNumberDelim);
+        var regex = new RegExp("^( *\\d+"+ escLineDelim +")?", 'mg');
+        value = value.replace(regex, function (match) {
+            lineNumbers.push(match);
+            return '';
+        });
+    }
+    
+    // Assembled a typed value containing metadata about the value.
+        
     var result = {
-        type: typeof value,
+        type: type,
         label: label +':', // add ':' because may later pad with spaces
         val: value,
+        lineNumbers: lineNumbers,
+        multiline: (type === 'string' && value.indexOf("\n") >= 0),
         property: property
     };
-    result.multiline = (result.type === 'string' && value.indexOf("\n") >= 0);
     return result;
 };
 
@@ -338,7 +358,7 @@ BaseReport.prototype._getResultsWidth = function (leftMargin) {
 BaseReport.prototype._highlightDiff = function (
         bkgStyleID, styleID, typedValue, diffIndex, diffLength)
 {
-    // don't allow a trialing LF to be embedded between escape sequences,
+    // don't allow a trailing LF to be embedded between escape sequences,
     // where LineMaker won't know to strip it for following printed text.
     var value = typedValue.val;
     if (value[value.length - 1] === "\n")
@@ -516,26 +536,33 @@ BaseReport.prototype._passedClosing = function (counts) {
 };
 
 BaseReport.prototype._printDiffLines = function(
-        indentLevel, styleID, lineStart, text)
+        indentLevel, styleID, lineStart, text, typedValue, firstLineIndex)
 {
     var leftMargin = indentLevel * this._tabSize; // of indented value
     var resultsWidth = this._getResultsWidth(leftMargin);
     this._maker.multiline(indentLevel, indentLevel,
-            this._maker.colorWrap(styleID, text, resultsWidth, lineStart));
+        this._maker.colorWrap(styleID, text, resultsWidth, 0,
+            function (lineIndex) {
+                if (!typedValue.lineNumbers)
+                    return lineStart;
+                lineIndex += firstLineIndex;
+                return lineStart + typedValue.lineNumbers[lineIndex];
+            },
+            '  '+ BaseReport.SYMBOL_CONTINUED
+        )
+    );
 };
 
 BaseReport.prototype._printDiffs = function (indentLevel, assert) {
 
     // retrieve information about actual and intended results
     
-    var actual = this._createResult('found', 'found', assert.diag.found);
+    var actual = this._createResult('found', 'found', assert.diag);
     var expected = null;
     if (!_.isUndefined(assert.diag.wanted))
-        expected = this._createResult('wanted', 'wanted', assert.diag.wanted);
-    else if (!_.isUndefined(assert.diag.doNotWant)) {
-        expected = this._createResult('notWanted', 'doNotWant',
-                 assert.diag.doNotWant);
-    }
+        expected = this._createResult('wanted', 'wanted', assert.diag);
+    else if (!_.isUndefined(assert.diag.doNotWant))
+        expected = this._createResult('notWanted', 'doNotWant', assert.diag);
     var mustQuoteString = (!actual.multiline && !expected.multiline);
 
     // output actual value by itself when there is no intended value
@@ -608,7 +635,8 @@ BaseReport.prototype._printFailedAssertion = function (
         ++indentLevel;
         if (!_.isUndefined(assert.diag.found))
             this._printDiffs(indentLevel, assert);
-        var diagText = yaml.safeDump(assert.diag, {
+        var diag = this._sortPrimaryLabelsFirst(assert.diag);
+        var diagText = yaml.safeDump(diag, {
             indent: this._tabSize,
             lineWidth: this._minResultsMargin - indentLevel*this._tabSize
         });
@@ -658,6 +686,8 @@ BaseReport.prototype._printInterleavedDiffs = function(
     // removal precedes an addition, we can highlight their differences.
     
     var nextDeltaValue = null;
+    var expectedLineCount = 0;
+    var actualLineCount = 0;
     for (var i = 0; i < deltas.length; ++i) {
         delta = deltas[i];
 
@@ -681,14 +711,22 @@ BaseReport.prototype._printInterleavedDiffs = function(
                 nextDeltaValue = partialActual.val;
             }
             this._printDiffLines(indentLevel, 'wanted',
-                      BaseReport.SYMBOL_GOOD_LINE +' ', value);
+                      BaseReport.SYMBOL_GOOD_LINE, value,
+                      expected, expectedLineCount);
+            expectedLineCount += delta.count;
         }
         else if (delta.added) {
             this._printDiffLines(indentLevel, 'found',
-                      BaseReport.SYMBOL_BAD_LINE +' ', value);
+                      BaseReport.SYMBOL_BAD_LINE, value,
+                      actual, actualLineCount);
+            actualLineCount += delta.count;
         }
-        else
-            this._printDiffLines(indentLevel, 'same', '  ', value);
+        else {
+            this._printDiffLines(indentLevel, 'same', '  ', value,
+                        actual, actualLineCount);
+            expectedLineCount += delta.count;
+            actualLineCount += delta.count;
+        }
     }
     
     // Print a note explaining the notation.
@@ -702,7 +740,13 @@ BaseReport.prototype._printMultilineValue = function (
     var value = typedValue.val;
     var leftMargin = (indentLevel + 1) * this._tabSize; // of indented value
     var resultsWidth = this._getResultsWidth(leftMargin);
-    var text = this._maker.colorWrap(styleID, value, resultsWidth);
+    var text = this._maker.colorWrap(styleID, value, resultsWidth, 0,
+        function (lineIndex) {
+            if (!typedValue.lineNumbers)
+                return '';
+            return typedValue.lineNumbers[lineIndex];
+        }
+    );
     
     this._maker.line(indentLevel, this._maker.color('label1',
             typedValue.label + this._yamlMark(value)));
@@ -718,6 +762,11 @@ BaseReport.prototype._printSingleLineValue = function (
     var resultsWidth = this._getResultsWidth(leftMargin);
     var firstLineWidth = resultsWidth + this._tabSize - label.length;
 
+    if (typedValue.lineNumbers) {
+        // A string shows as '123:"source string"', violating YAML, because
+        // the line number is not part of the string but must be reported.
+        value = typedValue.lineNumbers[0] + value;
+    }
     if (this._styleMode > LineMaker.STYLE_MONOCHROME) {
         // make it easier to read short values shown on a background color
         if (!typedValue.quoted) { // quotes already space value from background
@@ -728,7 +777,7 @@ BaseReport.prototype._printSingleLineValue = function (
     }
     this._maker.multiline(indentLevel, indentLevel + 1,
         this._maker.color('label1', label) +
-        this._maker.colorWrap(styleID, value, resultsWidth, '',
+        this._maker.colorWrap(styleID, value, resultsWidth,
                 resultsWidth - firstLineWidth));
 };
 
@@ -744,6 +793,21 @@ BaseReport.prototype._printTestContext = function (subtestStack) {
 
 BaseReport.prototype._printUpLine = function () {
     this._maker.upLine(); // subclass might override this
+};
+
+BaseReport.prototype._sortPrimaryLabelsFirst = function (diag) {
+    var sortedDiag = {};
+    var secondaryLabels = {};
+    Object.keys(diag).forEach(function (label) {
+        if (PRIMARY_LABELS.indexOf(label) >= 0)
+            sortedDiag[label] = diag[label];
+        else
+            secondaryLabels[label] = diag[label];
+    });
+    Object.keys(secondaryLabels).forEach(function (label) {
+        sortedDiag[label] = secondaryLabels[label];
+    });
+    return sortedDiag;
 };
 
 BaseReport.prototype._truncateFunction = function (jsonName, value) {

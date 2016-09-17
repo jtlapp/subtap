@@ -12,7 +12,7 @@ This is a beta release of `subtap` for the purpose of getting initial feedback. 
 
 `subtap` organizes debugging around root subtests. A "root subtest" is a test whose parent is a file's root `tap` test. `subtap` numbers the root subtests across all of the test files. You can rerun root subtests by indicating their numbers, have the debugger break at the start of each root subtest, and bail out of the test runner after a given number of root subtest failures.
 
-You control `subtap`'s output format. You can have it filter subtests for TAP output or you can pretty-print YAML output, optionally showing test results in JSON. The pretty-printing strives to clearly show differences between the found and wanted values of test assertions, including aligning values for vertical comparison and highlighting differences in non-printable characters. You can also show differences as interleaving diff lines. ([example output](#example-output))
+You control `subtap`'s output format. You can have it filter subtests for TAP output or you can pretty-print YAML-like output, optionally showing test results in JSON. The pretty-printing strives to clearly show differences between the found and wanted values of test assertions, including aligning values for vertical comparison and highlighting differences in non-printable characters. You can also show differences as interleaving diff lines. ([example output](#example-output))
 
 This tool only works with tests that employ the [`tap`](https://github.com/tapjs/node-tap) module.
 
@@ -158,6 +158,9 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
                        the timeout, set N to 0. (default -t3000, or 3 seconds)
 
   --tab=N              Indent each nested level by N spaces. (default --tab=2)
+
+  --tap-limit=L        Character length L to allot for the TAP output of a
+                       single test assertion, in KB. (default --tap-limit=32)
 
   --targ=<arg>         Pass <arg> to the test file(s) via process.argv. Use
                        --targ repeatedly to pass multiple arguments. See --narg.

@@ -20,6 +20,7 @@ var REGEX_SUBSET_RANGES = /\d+\.\.\d+|\d+/g;
 
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
+var tapLimit; // max char output of tap per chunk for node-tap issue #322
     // array of functions returning true given a test number in its range
 var testSelectors = null; 
 var testFileRegex; // regex for pulling test file and line number from Error
@@ -36,6 +37,7 @@ var exiting = false; // true to ignore tap compliants on premature exit
 //// MAIN /////////////////////////////////////////////////////////////////////
 
 process.on('message', function (config) {
+    tapLimit = config.tapLimit;
     testNumber = config.priorTestNumber;
     testFileRegex = new RegExp(config.testFileRegexStr);
     failedTests = config.failedTests;
@@ -134,7 +136,8 @@ function installTapWithPatches(tapPath) {
                 });
             }
             done();
-        }
+        },
+        highWaterMark: tapLimit
     }));
 }
 
