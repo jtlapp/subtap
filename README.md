@@ -18,7 +18,7 @@ This tool only works with tests that employ the [`tap`](https://github.com/tapjs
 
 ## Why another test runner?
 
-This test runner is for debugging. It employs [`tap`](https://github.com/tapjs/node-tap), so you can run your tests with `tap` too. But `subtap` is for debugging. With `subtap` you can:
+This test runner is for debugging. It employs [`tap`](https://github.com/tapjs/node-tap), so you can also run your tests with `tap`, which is good for regression and coverage testing. `subtap` strives to be good for debugging. With `subtap` you can:
 
 - Select subtests to rerun by number, even across files, running no others.
 - Have a debugger automatically break at the start of each root subtest.
@@ -202,9 +202,109 @@ It is quite a bit easier to debug with [node-inspector](https://github.com/node-
 5. Step through the debugger to debug your test. When you are ready to move on to the next test, resume (F8) the debugger. If you ran with `--debug-brk`, the debugger will automatically break at the next root subtest. If you ran with `--debug`, you'll stop wherever your next breakpoint is.
 6. Proceed from subtest to subtest debugging as you please. When a test file completes and `subtap` moves on to another test file, the debugger gets interrupted and automatically reloads. After reloading, you should see source again. If not, the page reloaded before `subtap` could launch the next test, so manually refresh the page. Due to the bug in node, the debugger may show the wrong source line. Loop back to step 3 to continue debugging.
 
-## Differencing Line-Numbered Text
+## Differencing with Line Numbers
 
-When writing test assertions that compare long text files, it helps to include line numbers when showing differences between the files. 
+When test assertions compare long text strings of many lines, it can help to include line numbers in the presentation of differences between the strings. When lines are identical but at different line numbers in the two strings, the differing line numbers should not show as differences in the lines. `subtap` provides two methods for displaying line numbers when differencing strings -- the `--line-numbers` option, and the `lineNumberDelim` TAP `extra` value.
+
+### Automatically Numbering Lines
+
+The `--line-numbers` options tells `subtap` when to add line numbers to found and wanted values that are strings. Use `--line-numbers=N` to have `subtap` automatically number strings that have at least `N` lines. An LF (`\n`) is assumed to end every line but a non-empty last line. The empty string has no lines, `apple\npear\n` has two lines, and `apple\npear\ngrape` has three lines. Using `--line-numbers` without specifying a number sets `N` to 2. Setting `N` to 0 disables automatic line numbering. Line numbering is disabled by default.
+
+Let's look at an example. The found and wanted values here are different:
+
+```js
+var t = require('tap');
+
+t.test("automatic line numbering", function (t) {
+
+    var wanted =
+        "The line numbers in this wanted text don't get differenced.\n"+
+        "A unique second line groups with the prior line.\n"+
+        "Both found and wanted text share this third line.\n"+
+        "This long line is missing from the found text. It wraps across"+
+            " lines and has no similar counterpart line.\n"+
+        "The line is also shared, but at different line numbers. The line"+
+            " number shown with -d is its line number in found text.\n"+
+        "The last line is like its counterpart, but at a different line"+
+            " number. The different line number is not highlighted as a"+
+            " difference."; 
+    var found =
+        "The line numbers in this found text also don't get differenced.\n"+
+        "Another unique second line grouping with the prior line.\n"+
+        "Both found and wanted text share this third line.\n"+
+        "The line is also shared, but at different line numbers. The line"+
+            " number shown with -d is its line number in found text.\n"+
+        "The last line is similar to its counterpart, but at a different"+
+            " line number. The different line number is not highlighted as"+
+            " a difference.";
+    
+    t.equal(found, wanted, "diffs ignore line numbers");
+    t.end();
+});
+```
+
+Rendering their differences with line numbering, but without using the `-d` option to interleave line diffs, yields this:
+
+![Automatic line numbering without -d](http://josephtlapp.com/elsewhere/subtap/demo-autonum-diff.png)
+
+Rendering their differences with line numbering and the `-d` option to interleave line diffs yields this:
+
+![Automatic line numbering with -d](http://josephtlapp.com/elsewhere/subtap/demo-autonum-diff-d.png)
+
+### Accepting Provided Line Numbers
+
+A far more flexible feature of `subtap` allows the text strings to arrive already containing line numbers and still not have the line numbers factor into the differences between the strings. The reason for numbering lines is to help deal with large documents, but when documents are large, they still excessively occupy the rendered output with uninformative text. Ideally, the output would only show the differences between documents, along with a little context for the differences, including line numbers.
+
+`subtap` provides a feature that enables other tools to reduce text documents to just their differences and include line numbers in those differences. [`crumpler`](https://github.com/jtlapp/crumpler) was developed specifically for this purpose, providing both a function library and custom [`tap`](https://github.com/tapjs/node-tap) test assertions for comparing multi-line text. By not reducing documents itself, `subtap` gives users the flexibility to choose their reduction technique. This also enables TAP output to include reduced documents in place of the full lengths of large documents.
+
+A test assertion informs `subtap` that the found or wanted value (or both) may include line numbers by placing a `lineNumberDelim` option in the assertion's `extra` values. This option takes a string that identifies the delimiter used to separate each line number from the line proper. Not all lines of the found and wanted values need contain line numbers. A line is assumed to have a line number if it begins with an integer, optionally preceded by padding spaces, and ends with the `lineNumberDelim` delimiter. Set `lineNumberDelim` to an empty string to indicate that there is no delimiter, in which case a line number ends upon encountering the first subsequent non-digit character.
+
+Consider the following test. Normally a tool like [`crumpler`](https://github.com/jtlapp/crumpler) would reduce the documents to their differences, but they're hard-coded here to show how such tools would work:
+
+```js
+var t = require('tap');
+
+t.test("assertion-provided line numbering", function (t) {
+
+    var wanted =
+        "0001. A tool such as crumpler has reduced two long text documents"+
+            " to just their differences.\n"+
+        "  ...collapsed 3499 lines...\n"+
+        "3501. Here ends the first 3501 lines, common to both documents.\n"+
+        "3502. This line is in both documents at different line numbers.\n"+
+        "3503. This line is not the same in both documents, but the line"+
+            " number is not highlighted as a difference.\n"+
+        "3504. The remaining lines of the two documents show as identical,"+
+            " despite having different line numbers.\n"+
+        "  ...collapsed 4698 lines...\n"+
+        "8203. Finally, we reach the last line of the document.\n";
+        
+    var found =
+        "0001. A tool such as crumpler has reduced two long text documents"+
+            " to just their differences.\n"+
+        "  ...collapsed 3499 lines...\n"+
+        "3501. Here ends the first 3501 lines, common to both documents.\n"+
+        "3502. We found this unexpected line in just one document,"+
+            " offsetting line numbering for the remainder of the document.\n"+
+        "3503. This line is in both documents at different line numbers.\n"+
+        "3504. This line is different between the documents, but the line"+
+            " number is not highlighted as a difference.\n"+
+        "3505. The remaining lines of the two documents show as identical,"+
+            " despite having different line numbers.\n"+
+        "  ...collapsed 4698 lines...\n"+
+        "8204. Finally, we reach the last line of the document.\n";
+    
+    t.equal(found, wanted, "diffs ignore line numbers",
+            { lineNumberDelim: '. ' });
+    t.end();
+});
+```
+
+Running this test with `subtap` and `-d` yields the following:
+
+![Provided line numbering with -d](http://josephtlapp.com/elsewhere/subtap/demo-linenum-diff-d.png)
+
+Notice that not all lines need have line numbers. Also notice the presence of `lineNumberDelim` among the output YAML labels.
 
 ## Other Special Features
 
