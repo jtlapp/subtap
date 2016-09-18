@@ -86,6 +86,7 @@ var configOptions = {
     string: [
         'debug',
         'debug-brk',
+        'line-numbers',
         'mark',
         'narg',
         'r',
@@ -221,6 +222,19 @@ var boldDiffText = optionhelp.getFlag(markFlags, 'B');
 var colorDiffText = optionhelp.getFlag(markFlags, 'C');
 var reverseFirstCharDiff = optionhelp.getFlag(markFlags, 'F');
 var reverseFirstLineDiff = optionhelp.getFlag(markFlags, 'R');
+
+// Validate automatic line numbering flag.
+
+var minAutoLineNumbering = args['line-numbers'];
+if (_.isUndefined(minAutoLineNumbering))
+    minAutoLineNumbering = 0;
+else if (minAutoLineNumbering === '')
+    minAutoLineNumbering = 2;
+else {
+    minAutoLineNumbering = parseInt(minAutoLineNumbering);
+    if (isNaN(minAutoLineNumbering))
+        exitWithUserError("--line-numbers optionally takes an integer");
+}
 
 // Validate the tests to run and determine last test number selected
     
@@ -427,6 +441,7 @@ function makePrettyPrinter(reportClass) {
         reverseFirstCharDiff: reverseFirstCharDiff,
         reverseFirstLineDiff: reverseFirstLineDiff,
         interleaveDiffs: args.diff,
+        minAutoLineNumbering: minAutoLineNumbering,
         canonical: canonical
     }));
 }

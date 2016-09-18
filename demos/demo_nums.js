@@ -1,6 +1,6 @@
 var t = require('tap');
 
-t.test("line numbering", function (t) {
+t.test("assertion-provided line numbering", function (t) {
 
     var wanted =
         "1:The line numbers in this wanted text don't get differenced.\n"+
@@ -17,7 +17,7 @@ t.test("line numbering", function (t) {
         "4:The line is also shared, but at different line numbers. The line number shown with -d is its line number in found text.\n"+
         "5:The last line is similar to its counterpart, but at a different line number. The different line number is not highlighted as a difference.";
     
-    t.equal(found, wanted, "have diffs ignore line numbers",
+    t.equal(found, wanted, "diffs ignore line numbers",
             { lineNumberDelim: ':' });
     
     t.end();

@@ -80,6 +80,8 @@ var COLORMAP_256 = {
 // _reverseFirstCharDiff - whether to reverse-video the first character that differs between found and wanted text
 // _reverseFirstLineDiff - whether to reverse-video the first-line difference between found and wanted text
 // _interleaveDiffs - whether to interleave differing found/wanted lines
+// _minAutoLineNumbering - min count of lines to autonumber, or 0 not to
+// _minAutonumberRegex - regex that tests for _minAutoLineNumbering lines
 // _maker - instance of LineMaker used for formatting output
 // _indent - string of spaces by which to indent each JSON nesting
 // _outputStream - stream to which to write output (a node Writable)
@@ -108,6 +110,7 @@ var COLORMAP_256 = {
  *   - reverseFirstCharDiff: whether to reverse-video the first character that differs between found and wanted text
 *    - reverseFirstLineDiff: whether to reverse-video the first-line difference between found and wanted text
  *   - interleaveDiffs: whether to interleave differing found/wanted lines
+ *   - minAutoLineNumbering: minimum number of lines that a wanted or found value must have in order for its lines to automatically be numbered, without line numbers interferring with differences comparisions. 0 disables line numbering. (default 0)
  *   - canonical: whether to visibly render control codes in output (defaults to false)
  *   - closeStream: whether to call end() on the output stream (defaults to false, which is usual for stdout)
 */
@@ -126,6 +129,7 @@ function BaseReport(outputStream, options) {
     this._reverseFirstCharDiff = options.reverseFirstCharDiff,
     this._reverseFirstLineDiff = options.reverseFirstLineDiff,
     this._interleaveDiffs = options.interleaveDiffs,
+    this._minAutoLineNumbering = options.minAutoLineNumbering || 0,
     this._closeStream = options.closeStream || false;
     
     var self = this;
@@ -143,6 +147,8 @@ function BaseReport(outputStream, options) {
         }
     });
     this._indent = this._maker.spaces(this._tabSize);
+    this._minAutonumberRegex =
+            new RegExp('([^\n]*\n|[^\n]+$){'+ this._minAutoLineNumbering +'}');
     
     this._depthShown = 0;
     this._rootSubtestFailed = false;
@@ -165,6 +171,7 @@ BaseReport.SYMBOL_SPACE = '·';
 BaseReport.SYMBOL_NEWLINE = "⏎";
 BaseReport.NEWLINE_SUB = BaseReport.SYMBOL_NEWLINE +"\n";
 BaseReport.SYMBOL_CONTINUED = '…';
+BaseReport.LINE_NUMBER_DELIM = ':';
 
 //// PUBLIC METHODS ///////////////////////////////////////////////////////////
 
@@ -274,17 +281,23 @@ BaseReport.prototype._createResult = function (label, property, diag) {
     var value = diag[property];
     var type = typeof value;
     
-    // Temporarily remove line numbers for comparison purposes.
+    // Establish whether lines already have or need to get line numbers.
     
+    var autonumber = false;
     var lineNumbers = null;
-    if (type === 'string' && typeof diag.lineNumberDelim === 'string') {
-        lineNumbers = [];
-        var escLineDelim = _.escapeRegExp(diag.lineNumberDelim);
-        var regex = new RegExp("^( *\\d+"+ escLineDelim +")?", 'mg');
-        value = value.replace(regex, function (match) {
-            lineNumbers.push(match);
-            return '';
-        });
+    if (type === 'string') {
+        if (typeof diag.lineNumberDelim === 'string') {
+            // Temporarily remove line numbers for comparison purposes.
+            lineNumbers = [];
+            var escLineDelim = _.escapeRegExp(diag.lineNumberDelim);
+            var regex = new RegExp("^( *\\d+"+ escLineDelim +")?", 'mg');
+            value = value.replace(regex, function (match) {
+                lineNumbers.push(match);
+                return '';
+            });
+        }
+        else if (this._minAutoLineNumbering > 0)
+            autonumber = this._minAutonumberRegex.test(value);
     }
     
     // Assembled a typed value containing metadata about the value.
@@ -293,6 +306,7 @@ BaseReport.prototype._createResult = function (label, property, diag) {
         type: type,
         label: label +':', // add ':' because may later pad with spaces
         val: value,
+        autonumber: autonumber,
         lineNumbers: lineNumbers,
         multiline: (type === 'string' && value.indexOf("\n") >= 0),
         property: property
@@ -543,10 +557,13 @@ BaseReport.prototype._printDiffLines = function(
     this._maker.multiline(indentLevel, indentLevel,
         this._maker.colorWrap(styleID, text, resultsWidth, 0,
             function (lineIndex) {
-                if (!typedValue.lineNumbers)
-                    return lineStart;
+                var start = lineStart;
                 lineIndex += firstLineIndex;
-                return lineStart + typedValue.lineNumbers[lineIndex];
+                if (typedValue.lineNumbers)
+                    start += typedValue.lineNumbers[lineIndex];
+                else if (typedValue.autonumber)
+                    start += String(lineIndex+1) + BaseReport.LINE_NUMBER_DELIM;
+                return start;
             },
             '  '+ BaseReport.SYMBOL_CONTINUED
         )
@@ -563,23 +580,34 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
         expected = this._createResult('wanted', 'wanted', assert.diag);
     else if (!_.isUndefined(assert.diag.doNotWant))
         expected = this._createResult('notWanted', 'doNotWant', assert.diag);
-    var mustQuoteString = (!actual.multiline && !expected.multiline);
 
     // output actual value by itself when there is no intended value
 
     if (!expected) {
-        this._normalizeTypedValue(actual, mustQuoteString, true);
-        this._normalizeTypedValue(expected, mustQuoteString, true);
+        this._normalizeTypedValue(actual, !actual.multiline, true);
         
         if (actual.multiline)
             this._printMultilineValue('found', indentLevel, actual);
         else
             this._printSingleLineValue('found', indentLevel, actual);
+
+        delete(assert.diag[actual.property]);
+        return; // short-circuit to reduce subsequent indentation
+    }
+    
+    // determine properties that are a function of both values
+
+    var mustQuoteString = (!actual.multiline && !expected.multiline);
+    if (actual.autonumber && expected.autonumber &&
+            actual.val !== '' && expected.val !== '')
+    {
+        actual.autonumber = true;
+        expected.autonumber = true;
     }
     
     // output interleaved lines for strings and objects when requested
     
-    else if (this._interleaveDiffs && actual.type === expected.type &&
+    if (this._interleaveDiffs && actual.type === expected.type &&
             (actual.type === 'string' || actual.type === 'object'))
     {
         this._normalizeTypedValue(actual, false, false);
@@ -616,8 +644,7 @@ BaseReport.prototype._printDiffs = function (indentLevel, assert) {
     // delete values from diagnostics so they aren't printed in the YAML
     
     delete(assert.diag[actual.property]);
-    if (expected)
-        delete(assert.diag[expected.property]);
+    delete(assert.diag[expected.property]);
 };
 
 BaseReport.prototype._printFailedAssertion = function (
@@ -742,9 +769,11 @@ BaseReport.prototype._printMultilineValue = function (
     var resultsWidth = this._getResultsWidth(leftMargin);
     var text = this._maker.colorWrap(styleID, value, resultsWidth, 0,
         function (lineIndex) {
-            if (!typedValue.lineNumbers)
-                return '';
-            return typedValue.lineNumbers[lineIndex];
+            if (typedValue.lineNumbers)
+                return typedValue.lineNumbers[lineIndex];
+            if (typedValue.autonumber)
+                return String(lineIndex + 1) + BaseReport.LINE_NUMBER_DELIM;
+            return '';
         }
     );
     

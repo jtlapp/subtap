@@ -118,6 +118,9 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
 
   -h --help            Show this help information.
 
+  --line-numbers[=N]   Show line numbers for all found/wanted strings having N+
+                       lines. --line-numbers sets N=2. 0 disables. (default 0)
+
   --mark=<f>[:<g>]     Mark differences between found & wanted values according
                        to flags. --mark=<f> sets flags <f> for all difference
                        comparisons. --mark=<f>:<g> sets flags <f> for comparing
@@ -198,6 +201,10 @@ It is quite a bit easier to debug with [node-inspector](https://github.com/node-
 4. If you ran with `--debug-brk`, the debugger will now be on the line `rootSubtest(t)`. Step into this line (F11) to enter the source code for this subtest.
 5. Step through the debugger to debug your test. When you are ready to move on to the next test, resume (F8) the debugger. If you ran with `--debug-brk`, the debugger will automatically break at the next root subtest. If you ran with `--debug`, you'll stop wherever your next breakpoint is.
 6. Proceed from subtest to subtest debugging as you please. When a test file completes and `subtap` moves on to another test file, the debugger gets interrupted and automatically reloads. After reloading, you should see source again. If not, the page reloaded before `subtap` could launch the next test, so manually refresh the page. Due to the bug in node, the debugger may show the wrong source line. Loop back to step 3 to continue debugging.
+
+## Differencing Line-Numbered Text
+
+When writing test assertions that compare long text files, it helps to include line numbers when showing differences between the files. 
 
 ## Other Special Features
 
