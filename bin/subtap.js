@@ -58,6 +58,7 @@ var child = null; // currently spawned child process or null
 var stderrStream = null; // stream for writing file's stderr channel output
 var stdoutStream = null; // stream for writing file's stdout channel output
 var savedStdio = []; // array of saved tuples { channel, file, output }
+var errorMessage = null; // error message to display after stdio, if any
 
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
@@ -107,8 +108,6 @@ var configOptions = {
     }
 };
 var args = minimist(argv, configOptions);
-// console.log(JSON.stringify(args, null, "  "));
-// process.exit(0);
 
 if (args.help) {
     require("../lib/help");
@@ -376,23 +375,27 @@ nodeCleanup(function() {
     
     if (savedStdio.length > 0)
         writeSavedOutput();
+    if (errorMessage !== null)
+        process.stderr.write(errorMessage);
 });
 
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
 function awaitHeartbeat(child) {
     timer = setTimeout(function() {
-        if (!gotPulse) {
-            child.kill('SIGKILL');
+        if (gotPulse) {
+            gotPulse = false;
+            awaitHeartbeat(child);
+        }
+        else {
             var filePath = filePaths[fileIndex];
             if (filePath.indexOf(cwd) === 0)
                 filePath = filePath.substr(cwd.length + 1);
-            writeErrorMessage(filePath +" timed out after "+
-                    args.timeout +" millis of inactivity");
-            process.exit(1);
+            errorMessage = filePath +" timed out after "+
+                    args.timeout +" millis of inactivity\n";
+            child.kill('SIGKILL');
+            // await child stdio before exiting
         }
-        gotPulse = false;
-        awaitHeartbeat(child);
     }, args.timeout);
 }
 
@@ -408,16 +411,27 @@ function directChildOutput(dest, childStdio, stdioStream, processStdio) {
     return stdioStream;
 }
 
-function exitWithTestError(stack) {
-    var callInfo = callStack.getCallSourceInfo(stack);
-    console.error("");
-    if (callInfo !== null) {
-        console.error(callInfo.file +":"+ callInfo.line +":"+ callInfo.column);
-        console.error(callInfo.source);
-        console.error(' '.repeat(callInfo.column - 1) +"^");
+function exitWithTestError(msg) {
+    if (outputFormat !== 'tap' && printer)
+        printer.abort();
+    if (msg.stack) {
+        var callInfo = callStack.getCallSourceInfo(msg.stack);
+        errorMessage = "\n";
+        if (callInfo !== null) {
+            errorMessage +=
+                callInfo.file +":"+ callInfo.line +":"+ callInfo.column +"\n"+
+                callInfo.source +"\n"+
+                ' '.repeat(callInfo.column - 1) +"^\n";
+        }
+        errorMessage += msg.stack;
     }
-    console.error(stack +"\n");
-    process.exit(1);
+    else
+        errorMessage = "Rejected Promise: "+ msg.reason;
+    errorMessage += "\n";
+    
+    // on test error, must collect errorMessage and child stdio before exiting
+    if (child === null)
+        process.exit(1); // child exited before errorMessage acquired
 }
 
 function exitWithUserError(message) {
@@ -532,8 +546,9 @@ function runNextFile() {
                 break;
             case 'error':
                 clearTimeout(timer);
+                bailed = true;
                 child.kill('SIGKILL');
-                exitWithTestError(msg.stack);
+                exitWithTestError(msg);
                 break;
             case 'done':
                 clearTimeout(timer);
@@ -578,6 +593,12 @@ function runNextFile() {
         // Abort output of tap parser and pretty printer.
         
         printer.end();
+        
+        // on test error, must collect errorMessage, child stdio before exiting
+        
+        child = null; // can only exit on test error if child === null
+        if (errorMessage !== null)
+            process.exit(1); // errorMessage acquired before child exited
     });
     
     // Begin the heartbeat timeout to catch child hanging.
@@ -605,7 +626,7 @@ function saveTestStdio(channel, dest, processStdio, stdioStream) {
 }
 
 function writeErrorMessage(message) {
-    process.stdout.write("*** "+ message +" ***\n\n");
+    process.stdout.write("*** "+ message +" ***\n");
 }
 
 function writeSavedOutput() {

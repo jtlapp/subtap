@@ -176,22 +176,23 @@ function isSelectedTest(testNumber) {
 
 function runRootSubtest(rootSubtest, t) {
     if (debugBreak) debugger;
-    rootSubtest(t); // step into here to debug the subtest
-    'resume debugger to reach next root subtest';
+    var promise = rootSubtest(t); // step into here to debug the subtest
+    return promise; // now resume debugger to reach next root subtest
 }
 
 function runUserCode(testFunc, allowExceptionLogging) {
     if (allowExceptionLogging && logExceptions)
         return testFunc();
     try {
-        return testFunc();
+        var promise = testFunc();
+        if (!promise || typeof promise.then !== 'function')
+            return promise; // tap may ignore the value in this case
+        return promise.catch(function (err) {
+            sendError(err); // err can be an Error or a reason string
+        });
     }
     catch (err) {
-        process.send({
-            event: 'error',
-            stack: err.stack
-        });
-        exiting = true;
+        sendError(err);
     }
 }
 
@@ -206,6 +207,22 @@ function selectTests(selectedTests) {
             return (testNumber >= start && testNumber <= end);
         });
     });
+}
+
+function sendError(err) {
+    if (err.stack) {
+        process.send({
+            event: 'error',
+            stack: err.stack // from an Error
+        });
+    }
+    else {
+        process.send({
+            event: 'error',
+            reason: err // promise rejection reason
+        });
+    }
+    exiting = true;
 }
 
 function tearDownTest() {
