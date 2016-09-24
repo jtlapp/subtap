@@ -63,14 +63,15 @@ process.on('message', function (config) {
                 lastTestNumber: testNumber,
                 failedTests: failedTests
             });
+            // disconnect IPC so can exit when stdout, stderr,
+            // child processes, and other resources complete.
+            process.disconnect();
         });
     }, false);
     tap.end();
 });
 
 process.send({ event: 'ready' }); // avoid race condition
-
-// forked child won't automatically exit
 
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 

@@ -377,6 +377,8 @@ nodeCleanup(function() {
         writeSavedOutput();
     if (errorMessage !== null)
         process.stderr.write(errorMessage);
+}, {
+    uncaughtException: "Uncaught exception...\x1b[K"
 });
 
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
@@ -391,8 +393,9 @@ function awaitHeartbeat(child) {
             var filePath = filePaths[fileIndex];
             if (filePath.indexOf(cwd) === 0)
                 filePath = filePath.substr(cwd.length + 1);
-            errorMessage = filePath +" timed out after "+
-                    args.timeout +" millis of inactivity\n";
+            errorMessage = toErrorMessage(filePath +" timed out after "+
+                    args.timeout +" millis of inactivity");
+            bailed = true;
             child.kill('SIGKILL');
             // await child stdio before exiting
         }
@@ -402,12 +405,12 @@ function awaitHeartbeat(child) {
 function directChildOutput(dest, childStdio, stdioStream, processStdio) {
     if (dest === 'each' || dest === 'end') {
         stdioStream = new MemoryStream();
-        childStdio.pipe(stdioStream);
+        childStdio.pipe(stdioStream, { end: false });
     }
     else if (dest === 'mix')
-        childStdio.pipe(processStdio);
+        childStdio.pipe(processStdio, { end: false });
     else if (dest === 'file')
-        childStdio.pipe(stdioStream);
+        childStdio.pipe(stdioStream, { end: false });
     return stdioStream;
 }
 
@@ -437,7 +440,7 @@ function exitWithTestError(msg) {
 function exitWithUserError(message) {
     if (outputFormat !== 'tap' && printer)
         printer.abort();
-    writeErrorMessage(message);
+    process.stdout.write(toErrorMessage(message));
     process.exit(1);
 }
 
@@ -551,11 +554,20 @@ function runNextFile() {
                 exitWithTestError(msg);
                 break;
             case 'done':
-                clearTimeout(timer);
-                child.kill('SIGKILL');
-                child = null;
                 testNumber = msg.lastTestNumber;
                 failedTests = msg.failedTests;
+                
+                // Output or save stderr and stdout that is not already piped.
+                // Child won't exit until we read and empty these streams.
+
+                stdoutStream = saveTestStdio('stdout', args.stdout,
+                        process.stdout, stdoutStream);
+                stderrStream = saveTestStdio('stderr', args.stderr,
+                        process.stderr, stderrStream);
+                child.stdout.unpipe();
+                child.stderr.unpipe();
+
+                // process resumes when child exits
                 break;
         }
     });
@@ -565,13 +577,6 @@ function runNextFile() {
     child.on('exit', function (exitCode) {
         // exitCode == 1 if any test fails, so can't bail run
         clearTimeout(timer); // child may exit without messaging parent
-        
-        // Output or save stderr and stdout that is not already piped.
-        
-        stdoutStream =
-            saveTestStdio('stdout', args.stdout, process.stdout, stdoutStream);
-        stderrStream =
-            saveTestStdio('stderr', args.stderr, process.stderr, stderrStream);
         
         // Run the next test if there is another and we haven't bailed.
         
@@ -625,8 +630,8 @@ function saveTestStdio(channel, dest, processStdio, stdioStream) {
     return stdioStream;
 }
 
-function writeErrorMessage(message) {
-    process.stdout.write("*** "+ message +" ***\n");
+function toErrorMessage(message) {
+    return "*** "+ message +" ***\n";
 }
 
 function writeSavedOutput() {
@@ -644,5 +649,4 @@ function writeChildOutput(processStdio, channel, filePath, output) {
     processStdio.write(output);
     if (output[output.length - 1] !== "\n")
         processStdio.write("\n"); // guarantee END starts on a new line
-    processStdio.write("---- END "+ channel +" ----\n");
 }
