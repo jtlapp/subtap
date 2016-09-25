@@ -124,6 +124,16 @@ function installTapWithPatches(tapPath) {
             return runUserCode(runRootSubtest.bind(this, cb, t), true);
         }, deferred);
     };
+    
+    var tapEnd = tap.end;
+    tap._subtapExtraEnds = 0;
+    tap.done = tap.end = function subtapRootEnd(implicit) {
+        // allow both subtap and test to call tap.end()
+        if (typeof implicit !== 'undefined')
+            tapEnd.call(this, implicit);
+        else if (!this._explicitEnded || ++this._subtapExtraEnds > 1)
+            tapEnd.call(this);
+    };
 
     installTypedAsserts(tap);
     installTypedAsserts(tap.Test.prototype);
