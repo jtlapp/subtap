@@ -1,6 +1,6 @@
 {
   "name": "subtap",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "a test runner for tap that selectively runs subtests",
   "main": "index.js",
   "bin": "./bin/subtap.js",
