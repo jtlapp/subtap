@@ -397,7 +397,7 @@ function awaitHeartbeat(child) {
                     args.timeout +" millis of inactivity");
             bailed = true;
             child.kill('SIGKILL');
-            // await child stdio before exiting
+            // wait for child stdio before exiting
         }
     }, args.timeout);
 }
@@ -428,8 +428,10 @@ function exitWithTestError(msg) {
         }
         errorMessage += msg.stack;
     }
-    else
+    else if (typeof msg.reason === 'string')
         errorMessage = "Rejected Promise: "+ msg.reason;
+    else
+        errorMessage = toErrorMessage(msg);
     errorMessage += "\n";
     
     // on test error, must collect errorMessage and child stdio before exiting
@@ -550,23 +552,11 @@ function runNextFile() {
             case 'error':
                 clearTimeout(timer);
                 bailed = true;
-                child.kill('SIGKILL');
                 exitWithTestError(msg);
                 break;
             case 'done':
                 testNumber = msg.lastTestNumber;
                 failedTests = msg.failedTests;
-                
-                // Output or save stderr and stdout that is not already piped.
-                // Child won't exit until we read and empty these streams.
-
-                stdoutStream = saveTestStdio('stdout', args.stdout,
-                        process.stdout, stdoutStream);
-                stderrStream = saveTestStdio('stderr', args.stderr,
-                        process.stderr, stderrStream);
-                child.stdout.unpipe();
-                child.stderr.unpipe();
-
                 // process resumes when child exits
                 break;
         }
@@ -578,14 +568,21 @@ function runNextFile() {
         // exitCode == 1 if any test fails, so can't bail run
         clearTimeout(timer); // child may exit without messaging parent
         
+        // transfer the child's output to the appropriate destinations
+        
+        stdoutStream = saveTestStdio('stdout', args.stdout,
+                process.stdout, stdoutStream);
+        stderrStream = saveTestStdio('stderr', args.stderr,
+                process.stderr, stderrStream);
+
         // Run the next test if there is another and we haven't bailed.
         
         if (!bailed) {
             if (++fileIndex < filePaths.length)
                 return runNextFile();
             if (testNumber === 0)
-                exitWithUserError("no subtests found");
-            if (lastSelectedTest > 0 && lastSelectedTest > testNumber) {
+                exitWithTestError("no subtests found");
+            else if (lastSelectedTest > 0 && lastSelectedTest > testNumber) {
                 var range;
                 if (lastSelectedTest === testNumber + 1)
                     range = " "+ lastSelectedTest;
@@ -649,4 +646,5 @@ function writeChildOutput(processStdio, channel, filePath, output) {
     processStdio.write(output);
     if (output[output.length - 1] !== "\n")
         processStdio.write("\n"); // guarantee END starts on a new line
+    processStdio.write("---- end "+ channel +" ----\n");
 }
