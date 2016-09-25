@@ -58,7 +58,7 @@ var child = null; // currently spawned child process or null
 var stderrStream = null; // stream for writing file's stderr channel output
 var stdoutStream = null; // stream for writing file's stdout channel output
 var savedStdio = []; // array of saved tuples { channel, file, output }
-var errorMessage = null; // error message to display after stdio, if any
+var errorMessages = ''; // error message text to display after stdio, if any
 
 //// CONFIGURATION ////////////////////////////////////////////////////////////
 
@@ -375,8 +375,8 @@ nodeCleanup(function() {
     
     if (savedStdio.length > 0)
         writeSavedOutput();
-    if (errorMessage !== null)
-        process.stderr.write(errorMessage);
+    if (errorMessages !== '')
+        process.stderr.write(errorMessages);
 }, {
     uncaughtException: "Uncaught exception...\x1b[K"
 });
@@ -393,7 +393,7 @@ function awaitHeartbeat(child) {
             var filePath = filePaths[fileIndex];
             if (filePath.indexOf(cwd) === 0)
                 filePath = filePath.substr(cwd.length + 1);
-            errorMessage = toErrorMessage(filePath +" timed out after "+
+            errorMessages += toErrorMessage(filePath +" timed out after "+
                     args.timeout +" millis of inactivity");
             bailed = true;
             child.kill('SIGKILL');
@@ -419,24 +419,24 @@ function exitWithTestError(msg) {
         printer.abort();
     if (msg.stack) {
         var callInfo = callStack.getCallSourceInfo(msg.stack);
-        errorMessage = "\n";
+        errorMessages += "\n";
         if (callInfo !== null) {
-            errorMessage +=
+            errorMessages +=
                 callInfo.file +":"+ callInfo.line +":"+ callInfo.column +"\n"+
                 callInfo.source +"\n"+
                 ' '.repeat(callInfo.column - 1) +"^\n";
         }
-        errorMessage += msg.stack;
+        errorMessages += msg.stack;
     }
     else if (typeof msg.reason === 'string')
-        errorMessage = "Rejected Promise: "+ msg.reason;
+        errorMessages += "Rejected Promise: "+ msg.reason;
     else
-        errorMessage = toErrorMessage(msg);
-    errorMessage += "\n";
+        errorMessages += toErrorMessage(msg);
+    errorMessages += "\n";
     
-    // on test error, must collect errorMessage and child stdio before exiting
+    // on test error, must collect errorMessages and child stdio before exiting
     if (child === null)
-        process.exit(1); // child exited before errorMessage acquired
+        process.exit(1); // child exited before errorMessages acquired
 }
 
 function exitWithUserError(message) {
@@ -550,7 +550,6 @@ function runNextFile() {
                     skippingChunks = false;
                 break;
             case 'error':
-                clearTimeout(timer);
                 bailed = true;
                 exitWithTestError(msg);
                 break;
@@ -596,11 +595,11 @@ function runNextFile() {
         
         printer.end();
         
-        // on test error, must collect errorMessage, child stdio before exiting
+        // on test error, must collect errorMessages, child stdio before exiting
         
         child = null; // can only exit on test error if child === null
-        if (errorMessage !== null)
-            process.exit(1); // errorMessage acquired before child exited
+        if (errorMessages !== '')
+            process.exit(1); // errorMessages acquired before child exited
     });
     
     // Begin the heartbeat timeout to catch child hanging.
