@@ -8,7 +8,7 @@ This is a beta release of `subtap` for the purpose of getting initial feedback. 
 
 ## Overview
 
-`subtap` is a test runner for debugging test suites by selectively running subtests. It is optionally also a TAP pretty-printer that emphasizes making even subtle differences between found and wanted values obvious at a glance.
+`subtap` is a test runner for [`tap`](https://github.com/tapjs/node-tap) that is designed specifically for debugging tests and for allowing you to selectively run subtests. It is optionally also a TAP pretty-printer that emphasizes making even subtle differences between found and wanted values obvious at a glance.
 
 `subtap` organizes debugging around root subtests. A "root subtest" is a test whose parent is a file's root `tap` test. `subtap` numbers the root subtests across all of the test files. You can rerun root subtests by indicating their numbers, have the debugger break at the start of each root subtest, and bail out of the test runner after a given number of root subtest failures.
 
@@ -107,7 +107,7 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
                        breakpoints at start of each root subtest. Sets -t0.
 
   --debug-port=<p>     Set default debug port to <p> instead of 5858. Useful in
-                       SUBTAP_ARGS to shorten --debug and --debug-brk arguments.
+                       SUBTAP_DEFAULT_ARGS to shorten --debug and --debug-brk.
 
   -e --log-exceptions  Catch and report subtest exceptions as failed assertions.
                        Root test exceptions always terminate the run because
@@ -176,7 +176,7 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
 
 You can connect a debugger to `subtap` to step through tests as they run. Use `--debug-brk` to break at the start of each root subtest. Use `--debug` to break only at your breakpoints, such as those of `debugger` statements. By combining `--debug-brk` with `-r<m>` you can walk the debugger through only root subtests of your choosing.
 
-The debugger runs as a separate process from `subtap`. By default, node serves the debugger on port 5858. You can select a different port `<p>` using the options `--debug=<p>` or `--debug-brk=<p>`. If you consistently use a different port, you can make your preferred port the default by adding `--debug-port=<p>` to the SUBTAP_ARGS environment variable. For example, placing `--debug-port=5859` in SUBTAP_ARGS would cause `--debug` on the command line to use port 5859, without having to fully specify `--debug=5859`.
+The debugger runs as a separate process from `subtap`. By default, node serves the debugger on port 5858. You can select a different port `<p>` using the options `--debug=<p>` or `--debug-brk=<p>`. If you consistently use a different port, you can make your preferred port the default by adding `--debug-port=<p>` to the `SUBTAP_DEFAULT_ARGS` environment variable. For example, placing `--debug-port=5859` in `SUBTAP_DEFAULT_ARGS` would cause `--debug` on the command line to use port 5859, without having to fully specify `--debug=5859`.
 
 As you proceed with debugging using any output format but `--fail`, the terminal running `subtap` shows the current test filename and subtest name, as well as the descriptions and results of previously completed assertions.
 
@@ -201,6 +201,30 @@ It is quite a bit easier to debug with [node-inspector](https://github.com/node-
 4. If you ran with `--debug-brk`, the debugger will now be on the line `rootSubtest(t)`. Step into this line (F11) to enter the source code for this subtest.
 5. Step through the debugger to debug your test. When you are ready to move on to the next test, resume (F8) the debugger. If you ran with `--debug-brk`, the debugger will automatically break at the next root subtest. If you ran with `--debug`, you'll stop wherever your next breakpoint is.
 6. Proceed from subtest to subtest debugging as you please. When a test file completes and `subtap` moves on to another test file, the debugger gets interrupted and automatically reloads. After reloading, you should see source again. If not, the page reloaded before `subtap` could launch the next test, so manually refresh the page. Due to the bug in node, the debugger may show the wrong source line. Loop back to step 3 to continue debugging.
+
+## Pausing at a Prompt
+
+A test may pause waiting for input from the `subtap` test runner. `subtap` presents a message and waits for the user to either hit *Enter* or type something and hit *Enter*. `subtap` passes the typed value back to the test, which may then resume. This feature is particularly useful for temporarily pausing tests to allow the user to inspect the mid-test states of the various resources and processes involved. In this case, the test ignores the value.
+
+Tests may run under test runners that don't support prompt input, so the test must determine whether prompt input is available before pausing. A test runner such as `subtap` indicates support by setting the `SUPPORTS_PROMPT_INPUT_IPC` environment variable to any value but the string `'false'`.
+
+If prompt input is supported, the test asks `subtap` to prompt the user by sending an IPC with properties `event` and `message`, where `event` is set to `'prompt'` and `message` is the string to display at the prompt. The test then listens for a response via the process event `promptInput`. Install the event listener first in case the test runner provides an immediate response, such as from buffered input. Sample code:
+
+```js
+process.on('promptInput', function (input) {
+    // proceed with test using input
+});
+process.send({
+    event: 'prompt',
+    message: '<message-to-display-at-prompt>'
+});
+```
+
+Normally you would do this within a promise and call `resolve(input)` on receiving the `promptInput` event.
+
+`subtap` suspends the inactivity timeout for the duration of the prompt.
+
+*Note:* I'm preparing a library of tools for using [webdriver.io](http://webdriver.io/) with `subtap`, including a `prompt` command.
 
 ## Differencing with Line Numbers
 
@@ -321,13 +345,23 @@ Notice that not all lines need have line numbers. Also notice the presence of `l
 
 ## Environment Variables
 
-### `SUBTAP_ARGS`
+### `SUBTAP_DEFAULT_ARGS`
 
-`SUBTAP_ARGS` is a space-delimited list of default command line arguments. These arguments apply except where overridden on the command line. The command line can turn off a boolean switch (e.g. `-d` or `--diff`) by suffixing a dash (e.g. `-d-`) or prefixing `no-` (e.g. `--no-diff`).
+`SUBTAP_DEFAULT_ARGS` is a space-delimited list of default command line arguments. These arguments apply except where overridden on the command line. The command line can turn off a boolean switch (e.g. `-d` or `--diff`) by suffixing a dash (e.g. `-d-`) or prefixing `no-` (e.g. `--no-diff`).
 
-### `SUBTAP_COLOR`
+### `SUBTAP_UNSTACK_PATHS`
 
-`SUBTAP_COLOR` is a path to a YAML file specifying color overrides. The path may be relative to the current working directory. The file associates the following style names with [ANSI escape codes](https://en.wikipedia.org/wiki/ANSI_escape_code):
+`subtap` outputs the stack trace for the point at which a test assertion fails. When the assertion occurs within a callback that was handed to a library (or framework), the stack trace includes all the internal calls of the library. This trace can be needlessly long and distracting. The `SUBTAP_UNSTACK_PATHS` environment variable allows you to truncate the stack trace to remove the calls of particular libraries.
+
+Set `SUBTAP_UNSTACK_PATHS` to a colon-delimited list of paths to libraries whose stack traces should be stripped from the output of failed assertions. All paths are treated as subpaths. A path matches a call path of the stack trace if it matches an integral series of components of the path. Call paths in the stack trace may be relative, so express paths relative to the local NPM package where possible.
+
+For example, the following is helpful when testing with an NPM-installed instance of [webdriver.io](http://webdriver.io/):
+
+`SUBTAP_UNSTACK_PATHS=node_modules/webdriverio`
+
+### `SUBTAP_COLOR_FILE`
+
+`SUBTAP_COLOR_FILE` is a path to a YAML file specifying color overrides. The path may be relative to the current working directory. The file associates the following style names with [ANSI escape codes](https://en.wikipedia.org/wiki/ANSI_escape_code):
 
 ```
   pass - style for name of a passing assertion or subtest
@@ -342,7 +376,7 @@ Notice that not all lines need have line numbers. Also notice the presence of `l
   label2 - style for a secondary YAML label
 ```
 
-See [this color chart](https://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg) for the available colors. For example, to make primary labels orange, include the following line in the `SUBTAP_COLOR` file:
+See [this color chart](https://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg) for the available colors. For example, to make primary labels orange, include the following line in the `SUBTAP_COLOR_FILE` file:
 
 ```YAML
 label1: "\e[38;5;166m"

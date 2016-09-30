@@ -36,7 +36,22 @@ var exiting = false; // true to ignore tap compliants on premature exit
 
 //// MAIN /////////////////////////////////////////////////////////////////////
 
-process.on('message', function (config) {
+process.on('message', function (msg) {
+    switch (msg.event) {
+        case 'config':
+            configure(msg);
+            break;
+        case 'input':
+            process.emit('promptInput', msg.input);
+            break;
+    }
+});
+
+process.send({ event: 'ready' }); // avoid race condition
+
+//// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
+
+function configure(config) {
     tapLimit = config.tapLimit;
     testNumber = config.priorTestNumber;
     testFileRegex = new RegExp(config.testFileRegexStr);
@@ -51,29 +66,26 @@ process.on('message', function (config) {
     
     runUserCode(function() {
         require(config.filePath);
-        
-        // installing a tearDown handler induces tap autoend,
-        // which sometimes causes tearDown before tests install,
-        // so have to install handler *after* registering tests.
-        // the handler installs because tap has to wait for all
-        // tests by waiting at least until the next tick.
-        tap.tearDown(function() {
-            process.send({
-                event: 'done',
-                lastTestNumber: testNumber,
-                failedTests: failedTests
-            });
-            // disconnect IPC so can exit when stdout, stderr,
-            // child processes, and other resources complete.
-            process.disconnect();
-        });
     }, false);
+    
+    // installing a tearDown handler induces tap autoend,
+    // which sometimes causes tearDown before tests install,
+    // so have to install handler *after* registering tests.
+    // the handler installs because tap has to wait for all
+    // tests by waiting at least until the next tick.
+    
+    tap.tearDown(function() {
+        process.send({
+            event: 'done',
+            lastTestNumber: testNumber,
+            failedTests: failedTests
+        });
+        // disconnect IPC so can exit when stdout, stderr,
+        // child processes, and other resources complete.
+        process.disconnect();
+    });
     tap.end();
-});
-
-process.send({ event: 'ready' }); // avoid race condition
-
-//// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
+}
 
 function installAssertSynonyms(t, assertName) {
     // adapted from node-tap/lib/assert.js
@@ -191,8 +203,8 @@ function runRootSubtest(rootSubtest, t) {
     return promise; // now resume debugger to reach next root subtest
 }
 
-function runUserCode(testFunc, allowExceptionLogging) {
-    if (allowExceptionLogging && logExceptions)
+function runUserCode(testFunc, midTest) {
+    if (midTest && logExceptions)
         return testFunc();
     try {
         var promise = testFunc();

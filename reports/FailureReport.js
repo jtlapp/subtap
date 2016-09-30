@@ -15,6 +15,8 @@ module.exports = FailureReport;
 
 FailureReport.prototype.beginTest = function (subtestStack, testInfo) {
     BaseReport.prototype.beginTest.call(this, subtestStack, testInfo);
+    if (this._truncated)
+        return;
     var formattedName = this._makeName(BaseReport.SYMBOL_PENDING, testInfo);
     this._maker.tempLine(subtestStack.length - 1, formattedName);
 };

@@ -15,6 +15,8 @@ module.exports = RootSubtestReport;
 
 RootSubtestReport.prototype.beginTest = function (subtestStack, testInfo) {
     BaseReport.prototype.beginTest.call(this, subtestStack, testInfo);
+    if (this._truncated)
+        return;
     if (subtestStack.length === 1)
         this._printTestContext(subtestStack);
     else {
@@ -25,6 +27,8 @@ RootSubtestReport.prototype.beginTest = function (subtestStack, testInfo) {
 
 RootSubtestReport.prototype.closeTest = function (subtestStack, results) {
     BaseReport.prototype.closeTest.call(this, subtestStack, results);
+    if (this._truncated)
+        return;
     if (subtestStack.length === 1 && !this._rootSubtestFailed) {
         this._printUpLine();
         var line =

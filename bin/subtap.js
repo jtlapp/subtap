@@ -24,20 +24,24 @@ var yaml = require('js-yaml');
 var optionhelp = require('option-help');
 var _ = require('lodash');
 var nodeCleanup = require('node-cleanup');
+var prompt = require('prompt');
 
 var subtap = require("../");
 var callStack = require("../lib/call_stack");
 
 //// CONSTANTS ////////////////////////////////////////////////////////////////
 
-var ENV_DEFAULT_ARGS = 'SUBTAP_ARGS';
-var ENV_COLOR_FILE = 'SUBTAP_COLOR';
+var ENV_DEFAULT_ARGS = 'SUBTAP_DEFAULT_ARGS';
+var ENV_COLOR_FILE = 'SUBTAP_COLOR_FILE';
+var ENV_UNSTACK_PATHS = 'SUBTAP_UNSTACK_PATHS';
+var ENV_SUPPORTS_PROMPT = 'SUPPORTS_PROMPT_INPUT_IPC';
 var OUTPUT_FORMATS = [ 'all', 'fail', 'json', 'tally', 'tap' ];
 var DEFAULT_OUTPUT_FORMAT = 'tally';
 var REGEX_VALID_SUBSET = /^\d+(\.\.\d+)?(,(\d+(\.\.\d+)?))*$/;
 var REGEX_RANGE_ENDS = /\d+(?!\.)/g;
 var STDIO_DESTINATIONS = [ 'each', 'end', 'mix', 'none' ];
 var DEFAULT_DEBUG_PORT = 5858;
+var SIGTERM_TIMEOUT_MILLIS = 1000;
 
 //// STATE ////////////////////////////////////////////////////////////////////
 
@@ -50,7 +54,8 @@ var failedTests = 0; // number of tests that have failed
 var bailed = false; // whether test file bailed out
 var skippingChunks = false; // whether skipping TAP output
 var gotPulse; // whether child process was recently active
-var timer; // heartbeat timer monitoring child activity
+var heartbeatTimer; // heartbeat timer monitoring child activity
+var sigtermTimer = null; // timer that waits for child to terminate on SIGTERM
 var debugPort; // node debugging port, or 0 if not debugging
 var debugBreak; // whether breaking at start of each root subtest
 
@@ -286,7 +291,7 @@ if (args['debug'] !== 0 && args['debug-brk'] !== 0)
     exitWithUserError("can't specify both --debug and --debug-brk");
 debugPort = args['debug'] + args['debug-brk']; // at most one is non-zero
 if (debugPort)
-    args.timeout = 0; // disable timer when debugging
+    args.timeout = 0; // disable heartbeat timer when debugging
 debugBreak = (args['debug-brk'] > 0);
 
 //// TEST RUNNER //////////////////////////////////////////////////////////////
@@ -297,8 +302,12 @@ var childEnv = {};
 Object.keys(process.env).forEach(function (key) {
     childEnv[key] = process.env[key];
 });
+childEnv[ENV_SUPPORTS_PROMPT] = ''; // create env var to indicate support
 if (args.bail)
     childEnv.TAP_BAIL = '1';
+var unstackPaths = [];
+if (typeof process.env[ENV_UNSTACK_PATHS] === 'string')
+    unstackPaths = process.env[ENV_UNSTACK_PATHS].split(':');
 
 // Locate the installation of the tap module that these test files will use. We need to tweak loads of this particular installation.
 
@@ -316,7 +325,8 @@ var printerMakerMap = {
     },
     json: function() {
         return new subtap.JsonPrinter(process.stdout, {
-            truncateTraceAtPath: childPath
+            runfilePath: childPath,
+            unstackPaths: unstackPaths
         });
     },
     tally: function() {
@@ -378,16 +388,22 @@ nodeCleanup(function() {
     if (errorMessages !== '')
         process.stderr.write(errorMessages);
 }, {
-    uncaughtException: "Uncaught exception...\x1b[K"
+    uncaughtException: "*** oops! subtap itself errored... ***\x1b[K"
 });
 
 //// SUPPORT FUNCTIONS ////////////////////////////////////////////////////////
 
-function awaitHeartbeat(child) {
-    timer = setTimeout(function() {
+function abort() {
+    bailed = true;
+    if (outputFormat !== 'tap' && printer)
+        printer.abort();
+}
+
+function awaitHeartbeat() {
+    heartbeatTimer = setTimeout(function() {
         if (gotPulse) {
             gotPulse = false;
-            awaitHeartbeat(child);
+            awaitHeartbeat();
         }
         else {
             var filePath = filePaths[fileIndex];
@@ -395,8 +411,13 @@ function awaitHeartbeat(child) {
                 filePath = filePath.substr(cwd.length + 1);
             errorMessages += toErrorMessage(filePath +" timed out after "+
                     args.timeout +" millis of inactivity");
-            bailed = true;
-            child.kill('SIGKILL');
+            abort();
+            child.kill('SIGTERM');
+            sigtermTimer = setTimeout(function () {
+                errorMessages += toErrorMessage(
+                        "forced to SIGKILL unresponsive child process");
+                child.kill('SIGKILL');
+            }, SIGTERM_TIMEOUT_MILLIS);
             // wait for child stdio before exiting
         }
     }, args.timeout);
@@ -415,8 +436,6 @@ function directChildOutput(dest, childStdio, stdioStream, processStdio) {
 }
 
 function exitWithTestError(msg) {
-    if (outputFormat !== 'tap' && printer)
-        printer.abort();
     if (msg.stack) {
         var callInfo = callStack.getCallSourceInfo(msg.stack);
         errorMessages += "\n";
@@ -440,8 +459,7 @@ function exitWithTestError(msg) {
 }
 
 function exitWithUserError(message) {
-    if (outputFormat !== 'tap' && printer)
-        printer.abort();
+    abort();
     process.stdout.write(toErrorMessage(message));
     process.exit(1);
 }
@@ -453,7 +471,8 @@ function makePrettyPrinter(reportClass) {
         colorOverrides: colorOverrides,
         minResultsWidth: args.minResultsWidth,
         minResultsMargin: args.minResultsMargin,
-        truncateTraceAtPath: childPath,
+        runfilePath: childPath,
+        unstackPaths: unstackPaths,
         funcs: args['full-functions'],
         boldDiffText: boldDiffText,
         colorDiffText: colorDiffText,
@@ -514,6 +533,7 @@ function runNextFile() {
         switch (msg.event) {
             case 'ready':
                 child.send({
+                    event: 'config',
                     tapPath: tapPath,
                     tapLimit: args['tap-limit']*1024,
                     priorTestNumber: testNumber,
@@ -550,13 +570,30 @@ function runNextFile() {
                     skippingChunks = false;
                 break;
             case 'error':
-                bailed = true;
+                abort();
                 exitWithTestError(msg);
                 break;
             case 'done':
                 testNumber = msg.lastTestNumber;
                 failedTests = msg.failedTests;
                 // process resumes when child exits
+                break;
+            case 'prompt':
+                clearTimeout(heartbeatTimer); // temporarily suspend heartbeat
+                process.stdout.write("\n"); // don't overwrite temp lines
+                prompt.start();
+                prompt.get({
+                    name: 'input',
+                    message: msg.message
+                }, function(err, result) {
+                    if (err) throw err;
+                    process.stdout.write("\n"); // spare prompt from overwrite
+                    child.send({
+                        event: 'input',
+                        input: result.input
+                    });
+                    awaitHeartbeat(); // resume heartbeat timeout
+                });
                 break;
         }
     });
@@ -565,7 +602,9 @@ function runNextFile() {
     
     child.on('exit', function (exitCode) {
         // exitCode == 1 if any test fails, so can't bail run
-        clearTimeout(timer); // child may exit without messaging parent
+        clearTimeout(heartbeatTimer); // child can exit w/out messaging parent
+        if (sigtermTimer !== null)
+            clearTimeout(sigtermTimer); // SIGTERM worked, no need for SIGKILL
         
         // transfer the child's output to the appropriate destinations
         
@@ -579,8 +618,10 @@ function runNextFile() {
         if (!bailed) {
             if (++fileIndex < filePaths.length)
                 return runNextFile();
-            if (testNumber === 0)
+            if (testNumber === 0) {
+                abort();
                 exitWithTestError("no subtests found");
+            }
             else if (lastSelectedTest > 0 && lastSelectedTest > testNumber) {
                 var range;
                 if (lastSelectedTest === testNumber + 1)
@@ -606,7 +647,7 @@ function runNextFile() {
     
     gotPulse = true;
     if (args.timeout > 0)
-        awaitHeartbeat(child);
+        awaitHeartbeat();
 }
 
 function saveTestStdio(channel, dest, processStdio, stdioStream) {

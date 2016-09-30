@@ -91,7 +91,8 @@ var COLORMAP_256 = {
 
 // _depthShown - depth of nested test names that are currently shown
 // _rootSubtestFailed - whether the containing root subtest has failed
-// _bailed - whether the test bailed out
+// _aborting - whether test run was aborted prematurely
+// _truncated - whether the report has been truncated
 
 //// CONSTRUCTION /////////////////////////////////////////////////////////////
 
@@ -99,7 +100,8 @@ var COLORMAP_256 = {
  * @param outputStream Stream to which to write output (a node Writable)
  * @param options
  *   - tabSize: width of each indentation level in spaces
- *   - truncateTraceAtPath: Path of file in call stack at which to abbreviate stack to just this path (defaults to null for no truncation)
+ *   - runfilePath: path to runfile for truncating call stacks (defaults to null for no truncation)
+ *   - unstackPaths: array of paths to libraries to truncate from call stacks (defaults to [])
  *   - styleMode: degree to which to allow ANSI escape sequences. see the LineMaker.STYLE_ constants.
  *   - colorOverrides: object mapping style names to escape sequences providing their colors. styles override defaults on a name-by-name basis.
  *   - minResultsWidth: min width at which to wrap failure results area
@@ -122,7 +124,8 @@ function BaseReport(outputStream, options) {
     this._tabSize = options.tabSize || 2;
     this._minResultsWidth = options.minResultsWidth || 20;
     this._minResultsMargin = options.minResultsMargin || 80;
-    this._truncateTraceAtPath = options.truncateTraceAtPath || null;
+    this._runfilePath = options.runfilePath || null;
+    this._unstackPaths = options.unstackPaths || [];
     this._showFunctionSource = options.showFunctionSource || false;
     this._boldDiffText = options.boldDiffText,
     this._colorDiffText = options.colorDiffText,
@@ -152,7 +155,8 @@ function BaseReport(outputStream, options) {
     
     this._depthShown = 0;
     this._rootSubtestFailed = false;
-    this._bailed = false;
+    this._aborting = false;
+    this._truncated = false;
 }
 module.exports = BaseReport;
 
@@ -175,7 +179,13 @@ BaseReport.LINE_NUMBER_DELIM = ':';
 
 //// PUBLIC METHODS ///////////////////////////////////////////////////////////
 
+BaseReport.prototype.beginAbort = function (subtestStack, testInfo) {
+    this._aborting = true;
+};
+
 BaseReport.prototype.beginTest = function (subtestStack, testInfo) {
+    if (this._truncated)
+        return;
     if (subtestStack.length === 1)
         this._rootSubtestFailed = false;
     else if (subtestStack.length > 1)
@@ -191,6 +201,12 @@ BaseReport.prototype.extra = function (subtestStack, extra) {
 };
 
 BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
+    if (this._truncated)
+        return;
+    if (assert.diag && assert.diag.signal === 'SIGTERM') {
+        this._truncated = true;
+        return;
+    }
     if (subtestStack.length > 0) {
         if (!this._rootSubtestFailed) {
             this._printUpLine();
@@ -206,8 +222,8 @@ BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
     }
     this._printTestContext(subtestStack);
     var self = this;
-    if (this._truncateTraceAtPath)
-        callStack.truncateAssertStacks(assert, this._truncateTraceAtPath);
+    callStack.truncateAssertStacks(assert, this._runfilePath,
+            this._unstackPaths);
     if (subtestStack.length === 0)
         this._printFailedAssertion(subtestStack, 'root-fail', assert);
     else
@@ -215,34 +231,42 @@ BaseReport.prototype.assertionFailed = function (subtestStack, assert) {
 };
 
 BaseReport.prototype.assertionPassed = function (subtestStack, assert) {
+    if (this._truncated)
+        return;
     var text = BaseReport.SYMBOL_PASS +" "+ this._makeAssertion(assert);
     this._maker.tempLine(subtestStack.length, text);
 };
 
 BaseReport.prototype.closeTest = function (subtestStack, results) {
+    if (this._truncated)
+        return;
     if (this._depthShown === subtestStack.length)
         --this._depthShown;
 };
 
 BaseReport.prototype.closeReport = function (subtestStack, results, counts) {
-    if (counts.failedAssertions === 0)
-        this._passedClosing(counts);
-    else
-        this._failedClosing(counts);
+    if (this._truncated)
+        return;
+    if (!this._aborting) {
+        if (counts.failedAssertions === 0)
+            this._passedClosing(counts);
+        else
+            this._failedClosing(counts);
+    }
     if (this._closeStream)
         this._outputStream.end();
 };
 
 BaseReport.prototype.bailout = function (subtestStack, reason, counts) {
-    if (!this._bailed) { // only report 1st notice, at informative indentation
-        this._printTestContext(subtestStack);
-        var level = subtestStack.length;
-        if (/Aborted after \d+ failed/i.test(reason))
-            level = 1; // only aborts for failure count of root subtests
-        this._maker.line(level, this._bold(this._color('fail',
-                BaseReport.SYMBOL_FAIL +" BAIL OUT! "+ reason)));
-        this._bailed = true;
-    }
+    if (this._aborting || this._truncated)
+        return;
+    this._printTestContext(subtestStack);
+    var level = subtestStack.length;
+    if (/Aborted after \d+ failed/i.test(reason))
+        level = 1; // only aborts for failure count of root subtests
+    this._maker.line(level, this._bold(this._color('fail',
+            BaseReport.SYMBOL_FAIL +" BAIL OUT! "+ reason)));
+    this._aborting = true;
 };
 
 //// RESTRICTED METHODS ///////////////////////////////////////////////////////
