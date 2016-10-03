@@ -82,14 +82,14 @@ var configOptions = {
         b: 'bail',
         c: 'color',
         d: 'diff',
-        e: 'log-exceptions',
         f: 'full-functions',
         h: 'help',
         r: 'run',
         t: 'timeout'
     },
-    boolean: [ 'b', 'c', 'd', 'e', 'f', 'h' ],
+    boolean: [ 'b', 'c', 'd', 'f', 'h' ],
     string: [
+        'catch',
         'debug',
         'debug-brk',
         'line-numbers',
@@ -127,7 +127,7 @@ if (outputFormat === null)
 
 // Validate argument values generically where possible
 
-['d', 'e', 'f'].forEach(function (option) {
+['d', 'f'].forEach(function (option) {
     if (!_.isBoolean(args[option])) {
         exitWithUserError(
             "-"+ option +" is a boolean switch that doesn't take a value");
@@ -184,13 +184,14 @@ if (_.isString(process.env[ENV_COLOR_FILE])) {
     }
 }
 
-// Get maximum number of tests that may fail
+// Get maximum number of tests that may fail and whether catching exceptions
 
 var maxFailedTests = 0; // assume no maximum
 if (_.isNumber(args.bail)) {
     maxFailedTests = args.bail;
     args.bail = false;
 }
+var catchExceptions = !_.isUndefined(args.catch);
 
 // Validate tab size
 
@@ -435,24 +436,8 @@ function directChildOutput(dest, childStdio, stdioStream, processStdio) {
     return stdioStream;
 }
 
-function exitWithTestError(msg) {
-    if (msg.stack) {
-        var callInfo = callStack.getCallSourceInfo(msg.stack);
-        errorMessages += "\n";
-        if (callInfo !== null) {
-            errorMessages +=
-                callInfo.file +":"+ callInfo.line +":"+ callInfo.column +"\n"+
-                callInfo.source +"\n"+
-                ' '.repeat(callInfo.column - 1) +"^\n";
-        }
-        errorMessages += msg.stack;
-    }
-    else if (typeof msg.reason === 'string')
-        errorMessages += "Rejected Promise: "+ msg.reason;
-    else
-        errorMessages += toErrorMessage(msg);
-    errorMessages += "\n";
-    
+function exitWithTestError(message) {
+    errorMessages += message + "\n";    
     // on test error, must collect errorMessages and child stdio before exiting
     if (child === null)
         process.exit(1); // child exited before errorMessages acquired
@@ -541,7 +526,7 @@ function runNextFile() {
                     selectedTests: args.run,
                     failedTests: failedTests,
                     maxFailedTests: maxFailedTests,
-                    logExceptions: args['log-exceptions'],
+                    catchExceptions: catchExceptions,
                     filePath: filePaths[fileIndex],
                     debugBreak: debugBreak
                 });
@@ -571,7 +556,28 @@ function runNextFile() {
                 break;
             case 'error':
                 abort();
-                exitWithTestError(msg);
+                var errInfo = msg.errInfo;
+                var callInfo = callStack.getCallSourceInfo(errInfo.stack);
+                var message = "\n";
+                if (callInfo !== null) {
+                    message +=
+                        callInfo.file +":"+ callInfo.line +":"+
+                        callInfo.column +"\n"+ callInfo.source +"\n"+
+                        ' '.repeat(callInfo.column - 1) +"^\n";
+                }
+                message += errInfo.stack;
+                delete errInfo['message'];
+                delete errInfo['stack'];
+                if (Object.keys(errInfo).length > 0) {
+                    if (message[message.length - 1] !== "\n")
+                        message += "\n";
+                    message += yaml.safeDump(errInfo, { indent: args.tab });
+                }
+                exitWithTestError(message);
+                break;
+            case 'rejection': // promise rejection reason
+                abort();
+                exitWithTestError("Rejected Promise: "+ msg.reason);
                 break;
             case 'done':
                 testNumber = msg.lastTestNumber;
@@ -620,7 +626,7 @@ function runNextFile() {
                 return runNextFile();
             if (testNumber === 0) {
                 abort();
-                exitWithTestError("no subtests found");
+                exitWithTestError(toErrorMessage("no subtests found"));
             }
             else if (lastSelectedTest > 0 && lastSelectedTest > testNumber) {
                 var range;

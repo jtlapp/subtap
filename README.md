@@ -24,6 +24,8 @@ This test runner is for debugging. It employs [`tap`](https://github.com/tapjs/n
 - Have a debugger automatically break at the start of each root subtest.
 - Bail out after a specified number of root subtests fail.
 - Optionally exit when your code throws an unexpected exception, instead of having it logged as a test failure and plowing on with testing.
+- Timeout after a period of test inactivity instead of at maximum test duration, allowing for tests of drammatically varying length.
+- Pause the test runner mid-test at a prompt to allow unlimited inspection of resources and processes.
 - Collect test file `stdout` for output after runner output or for writing to a file, delimiting it by test filename.
 - Clearly highlight non-printing character differences in test results.
 - Assign colors and result difference emphasis that make debugging fun.
@@ -97,6 +99,10 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
                          1: monochrome, including emphasis
                          2: multicolor, including emphasis
 
+  --catch              Catch and report subtest exceptions as failed assertions.
+                       Root test exceptions always terminate the run because
+                       they interrupt the numbering of root subtests.
+
   -d --diff            Compare found and wanted values by interleaving diff
                        lines. (Values otherwise display consecutively.)
 
@@ -108,10 +114,6 @@ Both `options` and `file-patterns` are optional. `file-patterns` is one or more 
 
   --debug-port=<p>     Set default debug port to <p> instead of 5858. Useful in
                        SUBTAP_DEFAULT_ARGS to shorten --debug and --debug-brk.
-
-  -e --log-exceptions  Catch and report subtest exceptions as failed assertions.
-                       Root test exceptions always terminate the run because
-                       they interrupt the numbering of root subtests.
 
   -f --full-functions  When found/wanted values reference functions, show the
                        function source code in addition to the signature.

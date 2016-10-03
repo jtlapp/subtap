@@ -25,7 +25,7 @@ var tapLimit; // max char output of tap per chunk for node-tap issue #322
 var testSelectors = null; 
 var testFileRegex; // regex for pulling test file and line number from Error
 var maxFailedTests; // max number of failed tests allowed in parent run
-var logExceptions; // whether to log exceptions in TAP or end test run
+var catchExceptions; // whether to catch exceptions in TAP or end test run
 var debugBreak; // whether to break at start of each root subtest
 
 //// STATE ////////////////////////////////////////////////////////////////////
@@ -57,7 +57,7 @@ function configure(config) {
     testFileRegex = new RegExp(config.testFileRegexStr);
     failedTests = config.failedTests;
     maxFailedTests = config.maxFailedTests;
-    logExceptions = config.logExceptions;
+    catchExceptions = config.catchExceptions;
     if (config.selectedTests !== '')
         selectTests(config.selectedTests);
     debugBreak = config.debugBreak;
@@ -204,7 +204,7 @@ function runRootSubtest(rootSubtest, t) {
 }
 
 function runUserCode(testFunc, midTest) {
-    if (midTest && logExceptions)
+    if (midTest && catchExceptions)
         return testFunc();
     try {
         var promise = testFunc();
@@ -234,14 +234,23 @@ function selectTests(selectedTests) {
 
 function sendError(err) {
     if (err.stack) {
+        var errInfo = {};
+        // message, stack, and maybe errno don't show in Object.keys()
+        errInfo.message = err.message;
+        errInfo.stack = err.stack;
+        if (typeof err.errno !== 'undefined')
+            errInfo.errno = err.errno;
+        Object.keys(err).forEach(function (key) {
+            errInfo[key] = err[key];
+        });
         process.send({
             event: 'error',
-            stack: err.stack // from an Error
+            errInfo: errInfo
         });
     }
     else {
         process.send({
-            event: 'error',
+            event: 'rejection',
             reason: err // promise rejection reason
         });
     }
