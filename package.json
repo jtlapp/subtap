@@ -1,6 +1,6 @@
 {
   "name": "subtap",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "a test runner for tap that selectively runs subtests",
   "main": "index.js",
   "bin": "./bin/subtap.js",
@@ -34,7 +34,7 @@
     "lodash": "^4.14.2",
     "memory-streams": "^0.1.0",
     "minimist": "^1.2.0",
-    "node-cleanup": "^1.0.0",
+    "node-cleanup": "^2.1.1",
     "option-help": "^0.5.2",
     "prompt": "^1.0.0",
     "resolve": "^1.1.7",

@@ -255,6 +255,7 @@ function sendError(err) {
         });
     }
     exiting = true;
+    tap.bailout("error"); // subtap ignore tap's bailout output here
 }
 
 function tearDownTest() {
