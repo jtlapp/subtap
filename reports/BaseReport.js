@@ -304,12 +304,14 @@ BaseReport.prototype._colorDiff = function (styleID, text) {
 BaseReport.prototype._createResult = function (label, property, diag) {
     var value = diag[property];
     var type = typeof value;
+    var trailingLF = false;
     
     // Establish whether lines already have or need to get line numbers.
     
     var autonumber = false;
     var lineNumbers = null;
     if (type === 'string') {
+        trailingLF = (value.substr(-1) === "\n");
         if (typeof diag.lineNumberDelim === 'string') {
             // Temporarily remove line numbers for comparison purposes.
             lineNumbers = [];
@@ -330,6 +332,7 @@ BaseReport.prototype._createResult = function (label, property, diag) {
         type: type,
         label: label +':', // add ':' because may later pad with spaces
         val: value,
+        trailingLF: trailingLF,
         autonumber: autonumber,
         lineNumbers: lineNumbers,
         multiline: (type === 'string' && value.indexOf("\n") >= 0),
@@ -728,8 +731,9 @@ BaseReport.prototype._printInterleavedDiffs = function(
     // that a prior diff line also does not end with a LF. The presence
     // of a LF is instead indicated via BaseReport.SYMBOL_NEWLINE.
 
+    var trailingLF = (delta.value.substr(-1) === "\n");
     this._maker.line(indentLevel++,
-            this._maker.color('label1', label + this._yamlMark(delta.value)));
+            this._maker.color('label1', label + this._yamlMark(trailingLF)));
     
     // Print the line differences in the string representations. The diff
     // utilities always lists lines removed from the expected value before
@@ -802,7 +806,7 @@ BaseReport.prototype._printMultilineValue = function (
     );
     
     this._maker.line(indentLevel, this._maker.color('label1',
-            typedValue.label + this._yamlMark(value)));
+            typedValue.label + this._yamlMark(typedValue.trailingLF)));
     this._maker.multiline(indentLevel + 1, indentLevel + 1, text);
 };
 
@@ -870,8 +874,6 @@ BaseReport.prototype._truncateFunction = function (jsonName, value) {
     return _.trimEnd(value.substr(0, value.indexOf("{")));
 };
 
-BaseReport.prototype._yamlMark = function (value) {
-    if (value[value.length - 1] === BaseReport.SYMBOL_NEWLINE)
-        return ' |';
-    return ' |-';
+BaseReport.prototype._yamlMark = function (trailingLF) {
+    return (trailingLF ? ' |' : ' |-');
 };

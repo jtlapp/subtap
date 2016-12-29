@@ -1,0 +1,351 @@
+[1m- [1] simple color diffs[0m (bin/_runfile.js:121)
+[F[1m✗[0m [1m[1] simple color diffs[0m (bin/_runfile.js:121)[K
+  [1m✗ [0m[1mFAILED.1 - should be equal[0m[K
+    found:  "abcde[1m[7mf[0m[0m"[0m
+    wanted: "abcde[1m[7mF[0m[0m"[0m
+    compare: ===
+    stack: |
+      demos/demo_diff_colors.js:4:7
+    source: |
+      t.equal("abcdef", "abcdeF");
+
+  [1m✗ [0m[1mFAILED.2 - should be equal[0m
+    found:  "[1m[7mA[0m[0m[1mbcdef[0m"[0m
+    wanted: "[1m[7ma[0m[0m[1mbcdeF[0m"[0m
+    compare: ===
+    stack: |
+      demos/demo_diff_colors.js:5:7
+    source: |
+      t.equal("Abcdef", "abcdeF");
+
+  [1m✗ [0m[1mFAILED.3 - should be equal[0m
+    found:  "[1m[7mA[0m[0mbcdef"[0m
+    wanted: "[1m[7ma[0m[0mbcdef"[0m
+    compare: ===
+    stack: |
+      demos/demo_diff_colors.js:6:7
+    source: |
+      t.equal("Abcdef", "abcdef");
+
+  [1m✗ [0m[1mFAILED.4 - should be equal[0m
+    found:  "abef"
+    wanted: "ab[1m[7mc[0m[0m[1md[0mef"[0m
+    compare: ===
+    stack: |
+      demos/demo_diff_colors.js:7:7
+    source: |
+      t.equal("abef", "abcdef");
+
+  [1m✗ [0m[1mFAILED.5 - should be equal[0m
+    found:  "ab[1m[7mc[0m[0m[1md[0mef"[0m
+    wanted: "abef"
+    compare: ===
+    stack: |
+      demos/demo_diff_colors.js:8:7
+    source: |
+      t.equal("abcdef", "abef");
+
+  [1m✗ [0m[1mFAILED.6 - should be equal[0m
+    found: |-
+      {
+        x: "[1m[7ma[0m[0m[1mbc",[0m
+      [1m  y: "def[0m"[0m
+      }
+    wanted: |-
+      {
+        x: "[1m[7m1[0m[0m[1m23",[0m
+      [1m  y: "456[0m"[0m
+      }
+    compare: ===
+    stack: |
+      demos/demo_diff_colors.js:10:7
+    source: |
+      t.equal({ x: 'abc', y: 'def' }, { x: '123', y: '456' });
+
+  [1m✗ [0m[1mFAILED.7 - should be equal[0m
+    found:  "[1m[7mT[0m[0m[1mhis is a long line that shows what happens when a single-line comp[0m
+      …[1marison gets wrapped onto a second line.[0m"[0m
+    wanted: ""
+    compare: ===
+    stack: |
+      demos/demo_diff_colors.js:15:7
+    source: |
+      t.equal(longText1, '');
+
+  [1m✗ [0m[1mFAILED.8 - should be equal[0m
+    found:  "[1m[7mT[0m[0m[1mhis is a long line that shows what happens when a single-line comp[0m
+      …[1marison gets wrapped onto a second lin[0me."[0m
+    wanted: "[1m[7mH[0m[0m[1mere we have a really really long line that should have nothing in [0m
+      …[1mcommon with it's compared line, at least not at the beginnings and ending[0m
+      …[1ms of the line. We want at least three lines her[0me."[0m
+    compare: ===
+    stack: |
+      demos/demo_diff_colors.js:16:7
+    source: |
+      t.equal(longText1, longText2);
+
+  [1m✗ [0m[1mFAILED.9 - with line numbering extra[0m
+    found: |-
+      1:[1m[7mN[0m[0m[1mow we try line numbers.⏎[0m
+      2:[1mWe have three lines. Need to be sure that at least one of the lines span[0m
+      …[1ms multiple lines when wrapped[0m.⏎[0m
+      3:Same last line.
+    wanted: |-
+      1:[1m[7mZ[0m[0m[1milch in common with other first line[0m.⏎[0m
+      2:Same last line.
+    compare: ===
+    lineNumberDelim: ':'
+    stack: |
+      demos/demo_diff_colors.js:23:7
+    source: |
+      t.equal(multiLine1, multiLine2, "with line numbering extra",
+
+[1m- [2] automatic line numbering[0m (bin/_runfile.js:121)
+[F[1m✗[0m [1m[2] automatic line numbering[0m (bin/_runfile.js:121)[K
+  [1m✗ [0m[1mFAILED.1 - diffs ignore line numbers[0m[K
+    found: |-
+      The line numbers in this [1m[7mf[0m[0m[1mound text also don't get differenced.⏎[0m
+      [1mAnother unique second line grouping with the prior line.⏎[0m
+      [1mBoth found and wanted text share this third line.⏎[0m
+      [1mThe line is also shared, but at different line numbers. The line number sh[0m
+      …[1mown with -d is its line number in found text.⏎[0m
+      [1mThe last line is similar to[0m its counterpart, but at a different line numbe[0m
+      …r. The different line number is not highlighted as a difference.
+    wanted: |-
+      The line numbers in this [1m[7mw[0m[0m[1manted text don't get differenced.⏎[0m
+      [1mA unique second line groups with the prior line.⏎[0m
+      [1mBoth found and wanted text share this third line.⏎[0m
+      [1mThis long line is missing from the found text. It wraps across lines and h[0m
+      …[1mas no similar counterpart line.⏎[0m
+      [1mThe line is also shared, but at different line numbers. The line number sh[0m
+      …[1mown with -d is its line number in found text.⏎[0m
+      [1mThe last line is like[0m its counterpart, but at a different line number. The[0m
+      … different line number is not highlighted as a difference.
+    compare: ===
+    stack: |
+      demos/demo_nonums.js:26:7
+    source: |
+      t.equal(found, wanted, "diffs ignore line numbers");
+
+[1m- [3] assertion-provided line numbering[0m (bin/_runfile.js:121)
+[F[1m✗[0m [1m[3] assertion-provided line numbering[0m (bin/_runfile.js:121)[K
+  [1m✗ [0m[1mFAILED.1 - diffs ignore line numbers[0m[K
+    found: |
+      0001. A tool such as crumpler has reduced two long text documents to just 
+      …their differences.⏎
+        ...collapsed 3499 lines...⏎
+      3501. Here ends the first 3501 lines, common to both documents.⏎
+      3502. [1m[7mW[0m[0m[1me found this unexpected line in just one document, offsetting line [0m
+      …[1mnumbering for the remainder of the document.⏎[0m
+      3503. [1mThis line is in both documents at different line numbers.⏎[0m
+      3504. [1mThis line is different between the[0m documents, but the line number is[0m
+      … not highlighted as a difference.⏎
+      3505. The remaining lines of the two documents show as identical, despite 
+      …having different line numbers.⏎
+        ...collapsed 4698 lines...⏎
+      8204. Finally, we reach the last line of the document.⏎
+    wanted: |
+      0001. A tool such as crumpler has reduced two long text documents to just 
+      …their differences.⏎
+        ...collapsed 3499 lines...⏎
+      3501. Here ends the first 3501 lines, common to both documents.⏎
+      3502. [1m[7mT[0m[0m[1mhis line is in both documents at different line numbers.⏎[0m
+      3503. [1mThis line is not the same in both[0m documents, but the line number is [0m
+      …not highlighted as a difference.⏎
+      3504. The remaining lines of the two documents show as identical, despite 
+      …having different line numbers.⏎
+        ...collapsed 4698 lines...⏎
+      8203. Finally, we reach the last line of the document.⏎
+    compare: ===
+    lineNumberDelim: '. '
+    stack: |
+      demos/demo_nums.js:33:7
+    source: |
+      t.equal(found, wanted, "diffs ignore line numbers",
+
+[1m- [4] only in a subtest[0m (bin/_runfile.js:121)
+[F[1m✗[0m [1m[4] only in a subtest[0m (bin/_runfile.js:121)[K
+  [1m✗ [0m[1mFAILED.1 - should be equal[0m[K
+    found: |-
+      [23 chars...]wxyz*BCD[...23 chars]⏎
+      /abcdefghijklmnopqrst[...33 chars]⏎
+      -abcdefghijklmnopqrst[...3 chars]⏎
+    wanted: |
+      [23 chars...]wxyz*BCD[...23 chars]⏎
+      /abcdefghijklmnopqrst[...33 chars]⏎
+      -abcdefghijklmnopqrst[...3[1m[7m3[0m[0m chars]⏎[0m
+    compare: ===
+    stack: |
+      demos/demo_overlap.js:13:7
+    source: |
+      t.equal(found, wanted);
+
+  [1m✗ [0m[1mFAILED.2 - 3 vs 33[0m
+    found:  "abc3def"
+    wanted: "abc3[1m[7m3[0m[0mdef"[0m
+    compare: ===
+    stack: |
+      demos/demo_overlap.js:15:7
+    source: |
+      t.equal("abc3def", "abc33def", "3 vs 33");
+
+  [1m✗ [0m[1mFAILED.3 - 3 vs 333[0m
+    found:  "abc3def"
+    wanted: "abc3[1m[7m3[0m[0m[1m3[0mdef"[0m
+    compare: ===
+    stack: |
+      demos/demo_overlap.js:16:7
+    source: |
+      t.equal("abc3def", "abc333def", "3 vs 333");
+
+  [1m✗ [0m[1mFAILED.4 - 33 vs 33333[0m
+    found:  "abc33def"
+    wanted: "abc33[1m[7m3[0m[0m[1m33[0mdef"[0m
+    compare: ===
+    stack: |
+      demos/demo_overlap.js:17:7
+    source: |
+      t.equal("abc33def", "abc33333def", "33 vs 33333");
+
+  [1m✗ [0m[1mFAILED.5 - 33 vs 3[0m
+    found:  "abc3[1m[7m3[0m[0mdef"[0m
+    wanted: "abc3def"
+    compare: ===
+    stack: |
+      demos/demo_overlap.js:19:7
+    source: |
+      t.equal("abc33def", "abc3def", "33 vs 3");
+
+  [1m✗ [0m[1mFAILED.6 - 333 vs 3[0m
+    found:  "abc3[1m[7m3[0m[0m[1m3[0mdef"[0m
+    wanted: "abc3def"
+    compare: ===
+    stack: |
+      demos/demo_overlap.js:20:7
+    source: |
+      t.equal("abc333def", "abc3def", "333 vs 3");
+
+  [1m✗ [0m[1mFAILED.7 - 33333 vs 33[0m
+    found:  "abc33[1m[7m3[0m[0m[1m33[0mdef"[0m
+    wanted: "abc33def"
+    compare: ===
+    stack: |
+      demos/demo_overlap.js:21:7
+    source: |
+      t.equal("abc33333def", "abc33def", "33333 vs 33");
+
+[1m- [5] unequal but should be equal[0m (bin/_runfile.js:121)
+[F[1m✗[0m [1m[5] unequal but should be equal[0m (bin/_runfile.js:121)[K
+  [1m✗ [0m[1mFAILED.1 - should be equal[0m[K
+    found:  "with a su[1m[7md[0m[0mtle difference"[0m
+    wanted: "with a su[1m[7mb[0m[0mtle difference"[0m
+    compare: ===
+    stack: |
+      demos/demo_overview.js:12:7
+    source: |
+      t.equal("with a sudtle difference", "with a subtle difference");
+
+  [1m✗ [0m[1mFAILED.2 - missing LF[0m
+    found: |-
+      line 1⏎
+      line 2
+    wanted: |-
+      line 1⏎
+      line 2[1m[7m⏎[0m[0m[0m
+    compare: ===
+    stack: |
+      demos/demo_overview.js:13:7
+    source: |
+      t.equal("line 1\nline 2", "line 1\nline 2\n", "missing LF");
+
+  [1m✗ [0m[1mFAILED.3 - an integer and a string[0m
+    found:   1234 
+    wanted: "1234"
+    compare: ===
+    stack: |
+      demos/demo_overview.js:14:7
+    source: |
+      t.equal(1234, "1234", "an integer and a string");
+
+  [1m✗ [0m[1mFAILED.4 - should be equal[0m
+    found: |-
+      {
+        x: 1,
+        y: [1m[7m2[0m[0m[0m
+      }
+    wanted: |-
+      {
+        x: 1,
+        y: [1m[7m3[0m[0m[0m
+      }
+    compare: ===
+    stack: |
+      demos/demo_overview.js:15:7
+    source: |
+      t.equal({ x: 1, y: 2 }, { x: 1, y: 3 });
+
+  [1m✗ [0m[1mFAILED.5 - different classes[0m
+    found: |-
+      {
+        _instanceof_: "Class[1m[7mA[0m[0m",[0m
+        x: 1,
+        y: 2
+      }
+    wanted: |-
+      {
+        _instanceof_: "Class[1m[7mB[0m[0m",[0m
+        x: 1,
+        y: 2
+      }
+    stack: |
+      Test.subtapStrictSame (bin/_runfile.js:174:21)
+      demos/demo_overview.js:16:7
+      runRootSubtest (bin/_runfile.js:202:19)
+      runUserCode (bin/_runfile.js:210:23)
+      bin/_runfile.js:136:20
+      Test.subtapRootSubtest [as test] (bin/_runfile.js:129:27)
+      Object.<anonymous> (demos/demo_overview.js:11:5)
+      bin/_runfile.js:68:9
+      runUserCode (bin/_runfile.js:210:23)
+      configure (bin/_runfile.js:67:5)
+      process.<anonymous> (bin/_runfile.js:42:13)
+      _combinedTickCallback (internal/process/next_tick.js:67:7)
+      process._tickCallback (internal/process/next_tick.js:98:9)
+    source: |
+      return this._overriddenStrictSame(f, w, m, e);
+
+[1m- [6] equal but should be unequal[0m (bin/_runfile.js:121)
+[F[1m✗[0m [1m[6] equal but should be unequal[0m (bin/_runfile.js:121)[K
+  [1m✗ [0m[1mFAILED.1 - don't want -1[0m[K
+    found:      -1 
+    notWanted:  -1 
+    compare: '!=='
+    stack: |
+      demos/demo_overview.js:21:7
+    source: |
+      t.notEqual(-1, -1, "don't want -1");
+
+  [1m✗ [0m[1mFAILED.2 - with trailing spaces[0m
+    found: |-
+      line 1 ⏎
+      line 2··
+    notWanted: |-
+      line 1 ⏎
+      line 2··
+    compare: '!=='
+    stack: |
+      demos/demo_overview.js:22:7
+    source: |
+      t.notEqual("line 1 \nline 2  ", "line 1 \nline 2  ",
+
+  [1m✗ [0m[1mFAILED.3 - clearly a string[0m
+    found:     "123"
+    notWanted: "123"
+    compare: '!=='
+    stack: |
+      demos/demo_overview.js:24:7
+    source: |
+      t.notEqual("123", "123", "clearly a string");
+
+[1mFailed 6 of 6 root subtests, 26 of 26 assertions[0m
+
